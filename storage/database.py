@@ -1,4 +1,4 @@
-"""SQLite storage for NikitaBot watched reels, profiles, and agent logs."""
+"""SQLite storage for NikitaBot watched reels, profiles, agent logs, and marketing audits."""
 import datetime as dt
 import json
 import os
@@ -79,12 +79,22 @@ class NikitaDatabase:
                     message TEXT NOT NULL,
                     metadata_json TEXT
                 );
+
+                CREATE TABLE IF NOT EXISTS profile_audits (
+                    username TEXT PRIMARY KEY,
+                    lead_score INTEGER DEFAULT 75,
+                    strengths_json TEXT DEFAULT '[]',
+                    weaknesses_json TEXT DEFAULT '[]',
+                    growth_points_json TEXT DEFAULT '[]',
+                    sales_pitch TEXT DEFAULT '',
+                    updated_at TEXT NOT NULL
+                );
             """)
 
             # Safe migration for existing databases: check and add new columns if missing
             cursor = conn.execute("PRAGMA table_info(watched_reels)")
             existing_cols = {row["name"] for row in cursor.fetchall()}
-            
+
             new_columns = [
                 ("transcript", "TEXT DEFAULT ''"),
                 ("hook_score", "REAL DEFAULT 0.0"),
@@ -176,44 +186,101 @@ class NikitaDatabase:
         )
         return True
 
-    def update_reel_analysis(
-        self,
-        shortcode: str,
-        transcript: str,
-        analysis_data: Dict[str, Any],
-        hook_frames: Optional[List[str]] = None
-    ) -> bool:
-        """Update analysis and transcript for an existing reel."""
-        hook_frames_json = json.dumps(hook_frames or [], ensure_ascii=False)
+    def delete_profile(self, username: str) -> bool:
+        """Deletes a profile from watched_profiles and removes its audit record."""
+        clean_user = username.strip().replace("@", "")
+        with self._get_connection() as conn:
+            conn.execute("DELETE FROM watched_profiles WHERE username = ?", (clean_user,))
+            conn.execute("DELETE FROM profile_audits WHERE username = ?", (clean_user,))
+        self.add_log("PROFILE_DELETED", f"Deleted target @{clean_user}", {"username": clean_user})
+        return True
+
+    def save_profile_audit(self, username: str, audit_data: Dict[str, Any]) -> None:
+        """Saves or updates a Sales & Marketing content audit for a profile."""
+        clean_user = username.strip().replace("@", "")
         with self._get_connection() as conn:
             conn.execute("""
-                UPDATE watched_reels SET
-                    transcript = ?,
-                    hook_score = ?,
-                    virality_score = ?,
-                    hook_type = ?,
-                    hook_dynamics = ?,
-                    hook_summary = ?,
-                    hook_frames_json = ?
-                WHERE shortcode = ?
+                INSERT INTO profile_audits (
+                    username, lead_score, strengths_json, weaknesses_json,
+                    growth_points_json, sales_pitch, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(username) DO UPDATE SET
+                    lead_score = excluded.lead_score,
+                    strengths_json = excluded.strengths_json,
+                    weaknesses_json = excluded.weaknesses_json,
+                    growth_points_json = excluded.growth_points_json,
+                    sales_pitch = excluded.sales_pitch,
+                    updated_at = excluded.updated_at
             """, (
-                transcript,
-                analysis_data.get("hook_score", 0.0),
-                analysis_data.get("virality_score", 0),
-                analysis_data.get("hook_type", ""),
-                analysis_data.get("hook_dynamics", ""),
-                analysis_data.get("summary", ""),
-                hook_frames_json,
-                shortcode
+                clean_user,
+                audit_data.get("lead_score", 75),
+                json.dumps(audit_data.get("strengths", []), ensure_ascii=False),
+                json.dumps(audit_data.get("weaknesses", []), ensure_ascii=False),
+                json.dumps(audit_data.get("growth_points", []), ensure_ascii=False),
+                audit_data.get("sales_pitch", ""),
+                utcnow()
             ))
-            return True
+        self.add_log("AUDIT_UPDATED", f"Updated Sales & Marketing audit for @{clean_user}", {"username": clean_user})
 
-    def get_watched_reels(self, limit: int = 50) -> List[Dict[str, Any]]:
-        """Retrieve recent watched reels ordered by watched_at desc."""
+    def get_profile_audit(self, username: str) -> Optional[Dict[str, Any]]:
+        """Retrieves the latest audit for a profile."""
+        clean_user = username.strip().replace("@", "")
         with self._get_connection() as conn:
-            rows = conn.execute("""
-                SELECT * FROM watched_reels ORDER BY watched_at DESC LIMIT ?
-            """, (limit,)).fetchall()
+            row = conn.execute("SELECT * FROM profile_audits WHERE username = ?", (clean_user,)).fetchone()
+            if not row:
+                return None
+            item = dict(row)
+            item["strengths"] = json.loads(item.get("strengths_json") or "[]")
+            item["weaknesses"] = json.loads(item.get("weaknesses_json") or "[]")
+            item["growth_points"] = json.loads(item.get("growth_points_json") or "[]")
+            return item
+
+    def get_profile_stats(self, username: str) -> Dict[str, Any]:
+        """Calculates aggregated metrics for all watched reels of a specific profile."""
+        clean_user = username.strip().replace("@", "")
+        with self._get_connection() as conn:
+            row = conn.execute("""
+                SELECT 
+                    COUNT(*) as total_reels,
+                    COALESCE(SUM(views_count), 0) as total_views,
+                    COALESCE(SUM(likes_count), 0) as total_likes,
+                    COALESCE(AVG(hook_score), 0.0) as avg_hook_score,
+                    COALESCE(AVG(virality_score), 0.0) as avg_virality
+                FROM watched_reels
+                WHERE username = ?
+            """, (clean_user,)).fetchone()
+
+            if not row or row["total_reels"] == 0:
+                return {
+                    "username": clean_user,
+                    "total_reels": 0,
+                    "total_views": 0,
+                    "total_likes": 0,
+                    "avg_hook_score": 0.0,
+                    "avg_virality": 0
+                }
+
+            return {
+                "username": clean_user,
+                "total_reels": row["total_reels"],
+                "total_views": row["total_views"],
+                "total_likes": row["total_likes"],
+                "avg_hook_score": round(row["avg_hook_score"], 1),
+                "avg_virality": int(row["avg_virality"])
+            }
+
+    def get_watched_reels(self, limit: int = 50, username: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Retrieve recent watched reels ordered by watched_at desc, optionally filtered by username."""
+        with self._get_connection() as conn:
+            if username:
+                clean_user = username.strip().replace("@", "")
+                rows = conn.execute("""
+                    SELECT * FROM watched_reels WHERE username = ? ORDER BY watched_at DESC LIMIT ?
+                """, (clean_user, limit)).fetchall()
+            else:
+                rows = conn.execute("""
+                    SELECT * FROM watched_reels ORDER BY watched_at DESC LIMIT ?
+                """, (limit,)).fetchall()
 
             result = []
             for r in rows:

@@ -20,29 +20,20 @@
           <span class="logo-icon">🎬</span>
           <div>
             <h1 class="brand-title">AI REELS AGENT</h1>
-            <span class="brand-subtitle">NikitaBot • Autonomous Monitor</span>
+            <span class="brand-subtitle">NikitaBot • Sales & Marketing</span>
           </div>
         </div>
       </div>
 
       <nav class="sidebar-nav">
-        <button class="nav-item active" data-tab="home">
-          <span class="nav-icon">🏠</span>
-          <span>Home Feed</span>
+        <button class="nav-item active" id="navAllProfilesBtn">
+          <span class="nav-icon">🌐</span>
+          <span>Все профили</span>
         </button>
-        <button class="nav-item" data-tab="profiles">
-          <span class="nav-icon">👥</span>
-          <span>Profiles</span>
-          <span class="nav-badge" id="profilesCount">4</span>
-        </button>
-        <button class="nav-item" data-tab="automation">
-          <span class="nav-icon">⚡</span>
-          <span>Automation</span>
-          <span class="pulse-dot"></span>
-        </button>
-        <button class="nav-item" data-tab="settings">
-          <span class="nav-icon">⚙️</span>
-          <span>Settings</span>
+        <button class="nav-item" id="navAuditModeBtn">
+          <span class="nav-icon">💼</span>
+          <span>Sales & Audit</span>
+          <span class="nav-badge" id="auditBadge">AI</span>
         </button>
       </nav>
 
@@ -61,7 +52,7 @@
       <div class="sidebar-footer">
         <div class="system-health">
           <span class="status-indicator online"></span>
-          <span>Scraper Engine: Online</span>
+          <span>Scraper & Whisper: Ready</span>
         </div>
         <button id="scanNowBtn" class="btn-scan-trigger">
           <span>⚡ Запустить сканирование</span>
@@ -69,14 +60,14 @@
       </div>
     </aside>
 
-    <!-- CENTER FEED: Scanned Reels & Posts -->
+    <!-- CENTER FEED: Scanned Reels, Profile Bar & Audit -->
     <main class="main-content">
       <!-- Top Bar -->
       <header class="top-nav">
         <div class="breadcrumbs">
           <span>Dashboard</span>
           <span class="crumb-sep">›</span>
-          <span class="current-crumb">Scanned Reels</span>
+          <span class="current-crumb" id="breadcrumbActiveProfile">Все профили</span>
         </div>
 
         <div class="top-actions">
@@ -90,35 +81,144 @@
               <option value="all">Все категории</option>
               <option value="Tech">Technology & AI</option>
               <option value="Startups">Startups & Business</option>
-              <option value="Gaming">Gaming & Memes</option>
+              <option value="Education & Science">Education & Science</option>
+              <option value="Marketing & Growth">Marketing & Growth</option>
             </select>
           </div>
 
           <div class="user-pill">
             <span class="user-avatar">🤖</span>
-            <span class="user-name">NikitaBot Agent</span>
+            <span class="user-name">NikitaBot Pro</span>
           </div>
         </div>
       </header>
 
-      <!-- Feed Container -->
-      <section class="feed-section">
+      <!-- Profile Overview Banner (Dynamic) -->
+      <div class="profile-hero-banner" id="profileHeroBanner" style="display: none;">
+        <div class="hero-left-col">
+          <div class="hero-avatar-box" id="heroAvatar">@</div>
+          <div class="hero-info">
+            <div class="hero-handle-row">
+              <h2 class="hero-handle" id="heroHandle">@username</h2>
+              <span class="hero-category-tag" id="heroCategory">Ниша</span>
+              <button class="btn-hero-action btn-danger" id="btnDeleteActiveProfile" title="Удалить профиль из отслеживаемых">
+                <span>🗑️ Удалить</span>
+              </button>
+            </div>
+            <p class="hero-desc" id="heroDesc">Профиль активен и отслеживается автономным агентом.</p>
+          </div>
+        </div>
+
+        <div class="hero-stats-row">
+          <div class="hero-stat-card">
+            <span class="stat-value" id="heroStatWatched">0</span>
+            <span class="stat-lbl">Просмотрено Reels</span>
+          </div>
+          <div class="hero-stat-card">
+            <span class="stat-value" id="heroStatViews">0</span>
+            <span class="stat-lbl">Сумма просмотров</span>
+          </div>
+          <div class="hero-stat-card">
+            <span class="stat-value text-purple" id="heroStatHook">0.0</span>
+            <span class="stat-lbl">Средний хук (1-10)</span>
+          </div>
+          <div class="hero-stat-card">
+            <span class="stat-value text-green" id="heroStatLead">0</span>
+            <span class="stat-lbl">Lead Score (1-100)</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab Switcher: Watched Reels vs Sales Audit -->
+      <div class="section-tabs-bar">
+        <button class="section-tab-btn active" id="tabReelsBtn">🎬 Просмотренные Reels (<span id="tabReelsCount">0</span>)</button>
+        <button class="section-tab-btn" id="tabAuditBtn">📊 Sales & Marketing Content Audit</button>
+      </div>
+
+      <!-- TAB 1: Reels Feed Grid -->
+      <section class="feed-section" id="reelsFeedSection">
         <div class="feed-header">
           <div>
-            <h2>Scanned Instagram Reels & Posts</h2>
-            <p class="feed-sub">Мультимодальный анализ видеоряда, хуков и транскриптов в реальном времени</p>
+            <h2>Лента просмотренного контента</h2>
+            <p class="feed-sub">Каждый ролик оцифрован: таймкоды, 3 кадра хука, текст Whisper и оценка виральности</p>
           </div>
           
           <div class="view-toggles">
             <button class="toggle-btn active" data-filter="all">Все (<span id="totalReelsCount">0</span>)</button>
-            <button class="toggle-btn" data-filter="viral">🔥 Виральные хуки</button>
-            <button class="toggle-btn" data-filter="positive">👍 Высокий sentiment</button>
+            <button class="toggle-btn" data-filter="viral">🔥 Виральные (85%+)</button>
+            <button class="toggle-btn" data-filter="positive">🎯 Сильный хук (7.5+)</button>
           </div>
         </div>
 
-        <!-- Reels Cards Grid -->
         <div class="reels-grid" id="reelsGrid">
           <!-- Populated dynamically by app.js -->
+        </div>
+      </section>
+
+      <!-- TAB 2: Sales & Marketing Content Audit Card -->
+      <section class="audit-section" id="auditContentSection" style="display: none;">
+        <div class="audit-header-row">
+          <div>
+            <h2>Sales & Marketing Content Audit</h2>
+            <p class="feed-sub">Глубокий разбор профиля для маркетолога и готовый оффер для коммерческого отдела</p>
+          </div>
+          <button id="refreshAuditBtn" class="btn-primary-sm">
+            <span>🔄 Перегенерировать аудит</span>
+          </button>
+        </div>
+
+        <!-- 3-Column Audit Breakdown -->
+        <div class="audit-columns-grid">
+          <!-- Strengths (Плюсы) -->
+          <div class="card-glass audit-col-card border-green">
+            <div class="audit-col-title">
+              <span class="col-icon">✅</span>
+              <h3>Сильные стороны (Плюсы)</h3>
+            </div>
+            <ul class="audit-list list-green" id="auditStrengthsList">
+              <li>Загрузка данных...</li>
+            </ul>
+          </div>
+
+          <!-- Weaknesses (Минусы и ошибки) -->
+          <div class="card-glass audit-col-card border-amber">
+            <div class="audit-col-title">
+              <span class="col-icon">⚠️</span>
+              <h3>Минусы и ошибки в хуках</h3>
+            </div>
+            <ul class="audit-list list-amber" id="auditWeaknessesList">
+              <li>Загрузка данных...</li>
+            </ul>
+          </div>
+
+          <!-- Growth Points -->
+          <div class="card-glass audit-col-card border-cyan">
+            <div class="audit-col-title">
+              <span class="col-icon">🚀</span>
+              <h3>Точки кратного роста</h3>
+            </div>
+            <ul class="audit-list list-cyan" id="auditGrowthList">
+              <li>Загрузка данных...</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- Commercial Sales Pitch Box -->
+        <div class="card-glass sales-pitch-card">
+          <div class="pitch-card-header">
+            <div>
+              <span class="pitch-badge">B2B Sales Outreach Pitch</span>
+              <h3>Готовое сообщение клиенту в Direct / Telegram</h3>
+              <p class="pitch-desc">Персонализированный оффер: похвала плюсов + акцент на уязвимости хука + предложение разбора.</p>
+            </div>
+            <button class="btn-copy-pitch" id="copyPitchBtn">
+              <span id="copyPitchIcon">📋</span>
+              <span id="copyPitchText">Скопировать Sales Pitch</span>
+            </button>
+          </div>
+          <div class="pitch-text-box" id="salesPitchTextBox">
+            Загрузка готового питча...
+          </div>
         </div>
       </section>
     </main>
@@ -130,11 +230,11 @@
         <h3>Autonomous Agent Activity</h3>
         <div class="current-task-status">
           <div class="task-info-row">
-            <span class="task-label" id="currentTaskLabel">Current Task: Scraping @TheTechDaily</span>
-            <span class="task-percentage" id="currentTaskProgressNum">65%</span>
+            <span class="task-label" id="currentTaskLabel">Status: Monitoring</span>
+            <span class="task-percentage" id="currentTaskProgressNum">100%</span>
           </div>
           <div class="progress-bar-bg">
-            <div class="progress-bar-fill" id="currentTaskProgressBar" style="width: 65%;"></div>
+            <div class="progress-bar-fill" id="currentTaskProgressBar" style="width: 100%;"></div>
           </div>
         </div>
 
@@ -146,52 +246,35 @@
 
       <!-- Scrapers Status Widget -->
       <div class="card-glass scrapers-card">
-        <h3>Active Scrapers</h3>
+        <h3>Active Pipelines</h3>
         <div class="scraper-row">
-          <span class="scraper-name">📸 Instagram (Instaloader + yt-dlp):</span>
-          <span class="badge-status status-running">Running</span>
+          <span class="scraper-name">📸 Instagram Scraper:</span>
+          <span class="badge-status status-running">Ready</span>
         </div>
         <div class="scraper-row">
-          <span class="scraper-name">🎵 TikTok Scraper:</span>
-          <span class="badge-status status-scanning">Scanning</span>
+          <span class="scraper-name">🎙️ faster-whisper:</span>
+          <span class="badge-status status-running">Active (CPU int8)</span>
         </div>
         <div class="scraper-row">
-          <span class="scraper-name">▶️ YouTube Shorts:</span>
-          <span class="badge-status status-idle">Idle</span>
+          <span class="scraper-name">🧠 Gemini Flash Multimodal:</span>
+          <span class="badge-status status-running">Connected</span>
         </div>
         <div class="scraper-row">
-          <span class="scraper-name">✈️ Telegram Notifier:</span>
-          <span class="badge-status status-active">Connected</span>
+          <span class="scraper-name">💼 Sales Auditor:</span>
+          <span class="badge-status status-active">Enabled</span>
         </div>
       </div>
 
       <!-- LLM Content Insights -->
       <div class="card-glass insights-card">
-        <h3>LLM Content Insights</h3>
-        <p class="insights-desc">Трендовые темы и паттерны виральных хуков:</p>
+        <h3>Viral Pattern Insights</h3>
+        <p class="insights-desc">Трендовые типы хуков в базе:</p>
         <div class="tag-cloud">
-          <span class="cloud-tag tag-hot">#AI Tech (94%)</span>
-          <span class="cloud-tag tag-hot">#Automation</span>
-          <span class="cloud-tag">#Web3</span>
-          <span class="cloud-tag">#Gadgets</span>
-          <span class="cloud-tag">#Founders</span>
-          <span class="cloud-tag">#GrowthHacks</span>
-        </div>
-      </div>
-
-      <!-- Token Budget Metrics -->
-      <div class="card-glass budget-card">
-        <h3>Token Budget & Metrics</h3>
-        <div class="budget-stat">
-          <span class="budget-num">42.1K</span>
-          <span class="budget-max">/ 100K daily tokens</span>
-        </div>
-        <div class="progress-bar-bg">
-          <div class="progress-bar-fill" style="width: 42%;"></div>
-        </div>
-        <div class="budget-footer">
-          <span>Whisper: 18.2 мин транскрибаций</span>
-          <span>18.9K used today</span>
+          <span class="cloud-tag tag-hot">#Curiosity Gap</span>
+          <span class="cloud-tag tag-hot">#Visual Shock</span>
+          <span class="cloud-tag">#Pattern Interrupt</span>
+          <span class="cloud-tag">#Problem Statement</span>
+          <span class="cloud-tag">#Immediate Proof</span>
         </div>
       </div>
     </aside>
@@ -205,24 +288,16 @@
         <button class="modal-close" id="closeProfileModal">✕</button>
       </div>
       <div class="modal-body">
-        <label for="profileUsername">Username в Instagram (без @):</label>
-        <input type="text" id="profileUsername" placeholder="например: lexfridman, hubermanlab, techinsider">
+        <label for="profileUsername">Username в Instagram или полная ссылка:</label>
+        <input type="text" id="profileUsername" placeholder="sentimentalka_smm или https://instagram.com/...">
 
         <label for="profileCategory">Категория / Ниша:</label>
         <select id="profileCategory">
           <option value="Technology & AI">Technology & AI</option>
           <option value="Startups & Business">Startups & Business</option>
-          <option value="Education & Science">Education & Science</option>
           <option value="Marketing & Growth">Marketing & Growth</option>
+          <option value="Education & Science">Education & Science</option>
           <option value="Lifestyle & Fitness">Lifestyle & Fitness</option>
-        </select>
-
-        <label for="checkInterval">Частота сканирования:</label>
-        <select id="checkInterval">
-          <option value="15">Каждые 15 минут</option>
-          <option value="30">Каждые 30 минут</option>
-          <option value="60">Каждый час</option>
-          <option value="360">Каждые 6 часов</option>
         </select>
       </div>
       <div class="modal-footer">
@@ -244,7 +319,6 @@
       </div>
       
       <div class="modal-body detail-grid-layout">
-        <!-- Left video preview -->
         <div class="modal-video-col">
           <div class="video-mock-box" id="modalVideoBox">
             <span class="play-symbol">▶</span>
@@ -253,7 +327,6 @@
           <div class="video-metrics-bar" id="modalMetricsBar"></div>
         </div>
 
-        <!-- Right analysis info -->
         <div class="modal-analysis-col">
           <div class="analysis-section">
             <h4>🎯 Виральный хук (первые 3 сек):</h4>
@@ -273,7 +346,6 @@
       </div>
 
       <div class="modal-footer">
-        <button class="btn-telegram" id="modalTelegramBtn">✈️ Отправить саммари в Telegram</button>
         <button class="btn-cancel" id="closeReelModalBtn">Закрыть</button>
       </div>
     </div>

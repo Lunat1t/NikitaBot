@@ -18,6 +18,7 @@ from storage.database import NikitaDatabase
 from processor.media import extract_audio, extract_hook_frames, cleanup_video
 from processor.transcriber import WhisperTranscriber
 from ai_analyzer.hook_analyzer import HookAnalyzer
+from ai_analyzer.profile_auditor import ProfileAuditor
 
 logging.basicConfig(
     level=logging.INFO,
@@ -35,12 +36,14 @@ class ContentWatcherAgent:
         db: Optional[NikitaDatabase] = None,
         scraper: Optional[InstagramScraper] = None,
         transcriber: Optional[WhisperTranscriber] = None,
-        analyzer: Optional[HookAnalyzer] = None
+        analyzer: Optional[HookAnalyzer] = None,
+        auditor: Optional[ProfileAuditor] = None
     ):
         self.db = db or NikitaDatabase()
         self.scraper = scraper or InstagramScraper()
         self.transcriber = transcriber or WhisperTranscriber(model_size="base")
         self.analyzer = analyzer or HookAnalyzer()
+        self.auditor = auditor or ProfileAuditor()
 
     def watch_profile(
         self,
@@ -185,12 +188,19 @@ class ContentWatcherAgent:
             {"username": clean_user, "new_count": new_watched_count}
         )
 
+        # Generate & save Sales & Marketing Content Audit
+        watched_reels = self.db.get_watched_reels(limit=20, username=clean_user)
+        audit_res = self.auditor.audit_profile(clean_user, watched_reels)
+        self.db.save_profile_audit(clean_user, audit_res)
+        print(f"💼 [Sales & Marketing Audit]: Сформирован аудит для @{clean_user} (Lead Score: {audit_res.get('lead_score')}/100)")
+
         return {
             "username": clean_user,
             "status": "success",
             "new_watched": new_watched_count,
             "previously_seen": previously_seen_count,
-            "total_found": len(result.reels)
+            "total_found": len(result.reels),
+            "audit": audit_res
         }
 
     def watch_all_targets(

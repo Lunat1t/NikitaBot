@@ -1,84 +1,58 @@
-// NikitaBot AI Reels Agent Dashboard Logic
+// NikitaBot AI Reels Agent Dashboard Logic - Sales & Marketing Edition
 (function () {
   "use strict";
 
-  // Mock initial dataset as baseline
-  const initialReels = [
-    {
-      id: "reel-101",
-      author: "@TheTechDaily",
-      authorName: "The Tech Daily",
-      timestamp: "3 часа назад",
-      category: "Tech",
-      duration: "0:38",
-      views: "2.4M",
-      likes: "184K",
-      comments: "1.2K",
-      shares: "42K",
-      sentimentScore: 94,
-      sentimentLabel: "94% Positive",
-      tags: ["AI", "Tech", "Innovation", "Future"],
-      viralHook: "«Is this the future?» — Compelling visual hook, strong pacing, clear voiceover. Highly engaging start in first 2.5s.",
-      hookScore: 9.2,
-      viralityScore: 94,
-      hookType: "Curiosity Gap",
-      hookFrames: [],
-      transcript: "This new open-source AI agent just automated an entire social media workflow. Watch what happens when I give it a single profile handle. It scrapes all recent reels, transcribes the voice with Whisper, runs multimodal frame detection, and sends ready-to-use executive summaries to Telegram in under 30 seconds. The code is completely free and running locally.",
-      takeaways: [
-        "Мощный эмоциональный хук с демонстрацией экрана",
-        "Быстрый темп речи без пауз (retention 82%)",
-        "Четкий призыв к действию в конце видео"
-      ]
-    },
-    {
-      id: "reel-102",
-      author: "@StartupHub",
-      authorName: "Startup Hub",
-      timestamp: "5 часов назад",
-      category: "Startups",
-      duration: "0:52",
-      views: "890K",
-      likes: "76K",
-      comments: "840",
-      shares: "15K",
-      sentimentScore: 88,
-      sentimentLabel: "88% Positive",
-      tags: ["Startups", "Growth", "Founders"],
-      viralHook: "«Stop building products nobody wants.» — Aggressive pattern interrupt, bold text overlay, energetic delivery.",
-      hookScore: 8.7,
-      viralityScore: 88,
-      hookType: "Pattern Interrupt",
-      hookFrames: [],
-      transcript: "Here are 3 brutal reasons your SaaS idea will fail before launch. Number one: you are solving a minor inconvenience instead of an urgent bleeding problem. Number two: zero distribution strategy. You built in a cave and expect virality. Number three: pricing is too low. If you charge 5 dollars, you need ten thousand customers. Charge 100 dollars and solve real pain.",
-      takeaways: [
-        "Паттерн-интеррапт на 1-й секунде (резкая смена кадра)",
-        "Списочная структура (3 пункта удерживают внимание)",
-        "Высокий репост-рейт из-за практической ценности"
-      ]
-    }
-  ];
-
-  let reels = [...initialReels];
+  let reels = [];
   let profiles = [];
+  let activeProfile = null; // null means 'all profiles'
   let currentFilter = "all";
   let searchQuery = "";
   let categoryFilter = "all";
+  let currentTab = "reels"; // 'reels' or 'audit'
 
-  // Elements
+  // DOM Elements
   const profilesContainer = document.getElementById("profilesContainer");
-  const profilesCountBadge = document.getElementById("profilesCount");
   const reelsGrid = document.getElementById("reelsGrid");
   const totalReelsCount = document.getElementById("totalReelsCount");
+  const tabReelsCount = document.getElementById("tabReelsCount");
   const searchInput = document.getElementById("searchInput");
   const filterCategory = document.getElementById("filterCategory");
   const toggleBtns = document.querySelectorAll(".toggle-btn");
   const scanNowBtn = document.getElementById("scanNowBtn");
   const activityLogStream = document.getElementById("activityLogStream");
-  const currentTaskLabel = document.getElementById("currentTaskLabel");
-  const currentTaskProgressBar = document.getElementById("currentTaskProgressBar");
-  const currentTaskProgressNum = document.getElementById("currentTaskProgressNum");
+  const breadcrumbActiveProfile = document.getElementById("breadcrumbActiveProfile");
 
-  // Modals
+  // Hero Profile Banner
+  const profileHeroBanner = document.getElementById("profileHeroBanner");
+  const heroAvatar = document.getElementById("heroAvatar");
+  const heroHandle = document.getElementById("heroHandle");
+  const heroCategory = document.getElementById("heroCategory");
+  const heroDesc = document.getElementById("heroDesc");
+  const heroStatWatched = document.getElementById("heroStatWatched");
+  const heroStatViews = document.getElementById("heroStatViews");
+  const heroStatHook = document.getElementById("heroStatHook");
+  const heroStatLead = document.getElementById("heroStatLead");
+  const btnDeleteActiveProfile = document.getElementById("btnDeleteActiveProfile");
+
+  // Tabs
+  const tabReelsBtn = document.getElementById("tabReelsBtn");
+  const tabAuditBtn = document.getElementById("tabAuditBtn");
+  const reelsFeedSection = document.getElementById("reelsFeedSection");
+  const auditContentSection = document.getElementById("auditContentSection");
+  const navAllProfilesBtn = document.getElementById("navAllProfilesBtn");
+  const navAuditModeBtn = document.getElementById("navAuditModeBtn");
+
+  // Audit Tab Elements
+  const auditStrengthsList = document.getElementById("auditStrengthsList");
+  const auditWeaknessesList = document.getElementById("auditWeaknessesList");
+  const auditGrowthList = document.getElementById("auditGrowthList");
+  const salesPitchTextBox = document.getElementById("salesPitchTextBox");
+  const copyPitchBtn = document.getElementById("copyPitchBtn");
+  const copyPitchText = document.getElementById("copyPitchText");
+  const copyPitchIcon = document.getElementById("copyPitchIcon");
+  const refreshAuditBtn = document.getElementById("refreshAuditBtn");
+
+  // Add Profile Modal
   const addProfileBtn = document.getElementById("addProfileBtn");
   const addProfileModal = document.getElementById("addProfileModal");
   const closeProfileModal = document.getElementById("closeProfileModal");
@@ -87,6 +61,7 @@
   const profileUsername = document.getElementById("profileUsername");
   const profileCategory = document.getElementById("profileCategory");
 
+  // Reel Detail Modal
   const reelDetailModal = document.getElementById("reelDetailModal");
   const closeReelModal = document.getElementById("closeReelModal");
   const closeReelModalBtn = document.getElementById("closeReelModalBtn");
@@ -96,7 +71,6 @@
   const modalHookText = document.getElementById("modalHookText");
   const modalTranscriptText = document.getElementById("modalTranscriptText");
   const modalKeyTakeaways = document.getElementById("modalKeyTakeaways");
-  const modalTelegramBtn = document.getElementById("modalTelegramBtn");
 
   async function init() {
     await loadProfiles();
@@ -106,12 +80,14 @@
     await loadLogsFromApi();
     attachEvents();
 
-    // Periodic poll every 8 seconds for new reels and logs
+    // Auto-refresh every 6 seconds
     setInterval(async () => {
+      await loadProfiles();
+      renderProfiles();
       await loadReelsFromApi();
       renderReels();
       await loadLogsFromApi();
-    }, 8000);
+    }, 6000);
   }
 
   function mapDbReel(dbR) {
@@ -123,7 +99,8 @@
       id: dbR.shortcode,
       author: `@${dbR.username}`,
       authorName: dbR.username,
-      timestamp: dbR.watched_at ? dbR.watched_at.slice(11, 16) + " UTC" : "Недавно",
+      timestamp: dbR.watched_at ? dbR.watched_at.slice(0, 16).replace("T", " ") : "Недавно",
+      watchedAt: dbR.watched_at,
       category: "Tech",
       duration: durStr,
       views: dbR.views_count ? `${(dbR.views_count / 1000).toFixed(1)}K` : "—",
@@ -147,39 +124,6 @@
     };
   }
 
-  async function loadReelsFromApi() {
-    try {
-      const res = await fetch("/api/reels");
-      if (res.ok) {
-        const data = await res.json();
-        if (data && data.length > 0) {
-          const mapped = data.map(mapDbReel);
-          reels = mapped;
-        }
-      }
-    } catch (e) {
-      // Keep existing reels on error
-    }
-  }
-
-  async function loadLogsFromApi() {
-    try {
-      const res = await fetch("/api/logs");
-      if (res.ok) {
-        const data = await res.json();
-        if (data && data.length > 0) {
-          activityLogStream.innerHTML = "";
-          data.slice(0, 8).forEach((item) => {
-            const time = item.timestamp ? item.timestamp.slice(11, 16) : "--:--";
-            addLogEntry(time, item.message);
-          });
-        }
-      }
-    } catch (e) {
-      // Ignore
-    }
-  }
-
   async function loadProfiles() {
     try {
       const res = await fetch("/api/profiles");
@@ -187,47 +131,135 @@
         profiles = await res.json();
         return;
       }
-    } catch (e) {
-      // Fallback
-    }
+    } catch (e) {}
+
     profiles = [
-      { id: "p-1", username: "TheTechDaily", followers: "2.1M", status: "active", category: "Technology & AI" },
-      { id: "p-2", username: "StartupHub", followers: "980K", status: "scanning", category: "Startups & Business" },
-      { id: "p-3", username: "ViralGamer", followers: "1.4M", status: "active", category: "Gaming & Memes" },
-      { id: "p-4", username: "DesignTrend", followers: "650K", status: "paused", category: "UI/UX & Product" }
+      { username: "sentimentalka_smm", category: "Marketing & Growth", followers: "Новый", stats: { total_reels: 0, total_views: 0, avg_hook_score: 0.0, avg_virality: 0 } },
+      { username: "TheTechDaily", category: "Technology & AI", followers: "2.1M", stats: { total_reels: 2, total_views: 4100000, avg_hook_score: 9.3, avg_virality: 95 } },
+      { username: "StartupHub", category: "Startups & Business", followers: "980K", stats: { total_reels: 1, total_views: 890000, avg_hook_score: 8.7, avg_virality: 88 } }
     ];
   }
 
   function renderProfiles() {
     profilesContainer.innerHTML = "";
-    profilesCountBadge.textContent = profiles.length;
 
     profiles.forEach((p) => {
       const el = document.createElement("div");
-      el.className = "profile-card-item";
+      const isActive = activeProfile && activeProfile.toLowerCase() === p.username.toLowerCase();
+      el.className = `profile-card-item ${isActive ? "active" : ""}`;
+      
+      const reelsCount = p.stats ? p.stats.total_reels : 0;
+      const reelsLabel = reelsCount > 0 ? `🎬 ${reelsCount} reels` : "нет рилсов";
+
       el.innerHTML = `
         <div class="profile-avatar-circle">${p.username.charAt(0).toUpperCase()}</div>
         <div class="profile-info">
           <div class="profile-handle">@${escapeHtml(p.username)}</div>
-          <div class="profile-followers">${escapeHtml(p.followers || "—")} followers</div>
+          <div class="profile-followers">${reelsLabel} • ${escapeHtml(p.category || "Общий")}</div>
         </div>
-        <span class="status-tag ${p.status}">${p.status}</span>
+        <button class="btn-profile-del" title="Удалить из отслеживаемых" data-username="${escapeHtml(p.username)}">✕</button>
       `;
+
+      // Select profile
+      el.addEventListener("click", (e) => {
+        if (e.target.classList.contains("btn-profile-del")) {
+          e.stopPropagation();
+          deleteProfile(p.username);
+          return;
+        }
+        selectProfile(p.username);
+      });
+
       profilesContainer.appendChild(el);
     });
   }
 
+  function selectProfile(username) {
+    activeProfile = username;
+    breadcrumbActiveProfile.textContent = `@${username}`;
+    renderProfiles();
+    updateHeroBanner();
+    renderReels();
+    loadProfileAudit(username);
+  }
+
+  function resetToAllProfiles() {
+    activeProfile = null;
+    breadcrumbActiveProfile.textContent = "Все профили";
+    profileHeroBanner.style.display = "none";
+    renderProfiles();
+    renderReels();
+    switchTab("reels");
+  }
+
+  function updateHeroBanner() {
+    if (!activeProfile) {
+      profileHeroBanner.style.display = "none";
+      return;
+    }
+
+    profileHeroBanner.style.display = "flex";
+    heroAvatar.textContent = activeProfile.charAt(0).toUpperCase();
+    heroHandle.textContent = `@${activeProfile}`;
+
+    const prof = profiles.find((p) => p.username.toLowerCase() === activeProfile.toLowerCase());
+    heroCategory.textContent = prof ? (prof.category || "General") : "General";
+
+    const stats = prof && prof.stats ? prof.stats : { total_reels: 0, total_views: 0, avg_hook_score: 0.0, avg_virality: 0 };
+    heroStatWatched.textContent = stats.total_reels || 0;
+    heroStatViews.textContent = stats.total_views > 1000 ? `${(stats.total_views / 1000).toFixed(1)}K` : stats.total_views;
+    heroStatHook.textContent = stats.avg_hook_score > 0 ? stats.avg_hook_score : "—";
+    heroStatLead.textContent = stats.total_reels > 0 ? Math.min(98, 70 + stats.total_reels * 4) : "—";
+
+    heroDesc.textContent = `Автономный агент отслеживает @${activeProfile}: просмотрено ${stats.total_reels} рилсов, готовит Sales & Marketing аудит.`;
+  }
+
+  async function deleteProfile(username) {
+    if (!confirm(`Удалить профиль @${username} из отслеживаемых?`)) return;
+
+    try {
+      await fetch(`/api/profiles/${encodeURIComponent(username)}`, { method: "DELETE" });
+      profiles = profiles.filter((p) => p.username.toLowerCase() !== username.toLowerCase());
+      if (activeProfile && activeProfile.toLowerCase() === username.toLowerCase()) {
+        resetToAllProfiles();
+      } else {
+        renderProfiles();
+      }
+    } catch (e) {
+      alert("Ошибка при удалении профиля");
+    }
+  }
+
+  async function loadReelsFromApi() {
+    try {
+      const url = activeProfile ? `/api/reels?username=${encodeURIComponent(activeProfile)}` : "/api/reels";
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.length > 0) {
+          reels = data.map(mapDbReel);
+        } else if (activeProfile) {
+          reels = [];
+        }
+      }
+    } catch (e) {}
+  }
+
   function renderReels() {
     let list = [...reels];
+
+    if (activeProfile) {
+      list = list.filter((r) => r.authorName.toLowerCase() === activeProfile.toLowerCase());
+    }
 
     if (categoryFilter !== "all") {
       list = list.filter((r) => r.category === categoryFilter);
     }
 
     if (currentFilter === "viral") {
-      list = list.filter((r) => (r.viralityScore || r.sentimentScore) >= 85);
+      list = list.filter((r) => (r.viralityScore || 0) >= 85);
     } else if (currentFilter === "positive") {
-      list = list.filter((r) => (r.hookScore || 0) >= 7.0);
+      list = list.filter((r) => (r.hookScore || 0) >= 7.5);
     }
 
     if (searchQuery) {
@@ -242,10 +274,14 @@
     }
 
     totalReelsCount.textContent = list.length;
+    tabReelsCount.textContent = list.length;
     reelsGrid.innerHTML = "";
 
     if (list.length === 0) {
-      reelsGrid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; padding: 40px; color: var(--text-dim);">Записей не найдено по заданным фильтрам.</div>`;
+      const msg = activeProfile
+        ? `У профиля @${activeProfile} пока нет просмотренных роликов. Нажмите «⚡ Запустить сканирование» или введите команду watch в CLI.`
+        : `Нет просмотренных рилсов по заданным фильтрам.`;
+      reelsGrid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; padding: 40px; color: var(--text-dim);">${msg}</div>`;
       return;
     }
 
@@ -255,7 +291,7 @@
 
       const tagsHtml = reel.tags.map((t) => `<span class="ai-tag">#${escapeHtml(t)}</span>`).join("");
 
-      // 3-frame hook strip if available
+      // 3-frame hook strip
       let framesStripHtml = "";
       if (reel.hookFrames && reel.hookFrames.length > 0) {
         const timestamps = ["0.5s", "1.5s", "3.0s"];
@@ -279,7 +315,7 @@
         `;
       }
 
-      // Transcript dropdown if available
+      // Transcript dropdown
       let transcriptHtml = "";
       if (reel.transcript) {
         const wordCount = reel.transcript.split(/\s+/).filter(Boolean).length;
@@ -297,7 +333,7 @@
             <span style="font-size: 16px;">🎬</span>
             <span class="author-handle">${escapeHtml(reel.author)}</span>
           </div>
-          <span class="time-stamp">${escapeHtml(reel.timestamp)}</span>
+          <span class="time-stamp">✅ Просмотрен ${escapeHtml(reel.timestamp)}</span>
         </div>
 
         ${framesStripHtml}
@@ -312,14 +348,13 @@
           <span class="metric-item">👁️ ${reel.views}</span>
           <span class="metric-item">❤️ ${reel.likes}</span>
           <span class="metric-item">💬 ${reel.comments}</span>
-          <span class="metric-item">↗️ ${reel.shares}</span>
         </div>
 
         <div class="ai-analysis-block">
           <div class="tag-list">${tagsHtml}</div>
           
           <div class="hook-analysis-box">
-            <div class="hook-title">🎯 Gemini Multimodal Hook Analysis</div>
+            <div class="hook-title">🎯 Разбор хука & Рекомендации</div>
             <p>${escapeHtml(reel.viralHook)}</p>
           </div>
 
@@ -328,15 +363,75 @@
 
         <div class="card-actions">
           <button class="btn-detail view-analysis-btn">Подробный разбор & Кадры</button>
-          <button class="btn-telegram-share send-tg-btn" title="Отправить карточку в Telegram">✈️</button>
         </div>
       `;
 
       card.querySelector(".view-analysis-btn").addEventListener("click", () => openReelDetails(reel));
-      card.querySelector(".send-tg-btn").addEventListener("click", () => sendTelegramAlert(reel));
-
       reelsGrid.appendChild(card);
     });
+  }
+
+  async function loadProfileAudit(username) {
+    const cleanUser = username.replace("@", "");
+    auditStrengthsList.innerHTML = "<li>Загрузка сильных сторон...</li>";
+    auditWeaknessesList.innerHTML = "<li>Загрузка ошибок и уязвимостей...</li>";
+    auditGrowthList.innerHTML = "<li>Загрузка точек роста...</li>";
+    salesPitchTextBox.textContent = "Формирование коммерческого предложения...";
+
+    try {
+      const res = await fetch(`/api/profiles/${encodeURIComponent(cleanUser)}/audit`);
+      if (res.ok) {
+        const audit = await res.json();
+        renderAudit(audit);
+      }
+    } catch (e) {
+      salesPitchTextBox.textContent = "Не удалось загрузить аудит.";
+    }
+  }
+
+  function renderAudit(audit) {
+    if (!audit) return;
+
+    auditStrengthsList.innerHTML = (audit.strengths || []).map((s) => `<li>${escapeHtml(s)}</li>`).join("");
+    auditWeaknessesList.innerHTML = (audit.weaknesses || []).map((w) => `<li>${escapeHtml(w)}</li>`).join("");
+    auditGrowthList.innerHTML = (audit.growth_points || []).map((g) => `<li>${escapeHtml(g)}</li>`).join("");
+    salesPitchTextBox.textContent = audit.sales_pitch || "Питч генерируется...";
+  }
+
+  function switchTab(tab) {
+    currentTab = tab;
+    if (tab === "reels") {
+      tabReelsBtn.classList.add("active");
+      tabAuditBtn.classList.remove("active");
+      reelsFeedSection.style.display = "block";
+      auditContentSection.style.display = "none";
+    } else {
+      tabAuditBtn.classList.add("active");
+      tabReelsBtn.classList.remove("active");
+      reelsFeedSection.style.display = "none";
+      auditContentSection.style.display = "block";
+      if (!activeProfile && profiles.length > 0) {
+        selectProfile(profiles[0].username);
+      } else if (activeProfile) {
+        loadProfileAudit(activeProfile);
+      }
+    }
+  }
+
+  async function loadLogsFromApi() {
+    try {
+      const res = await fetch("/api/logs");
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.length > 0) {
+          activityLogStream.innerHTML = "";
+          data.slice(0, 8).forEach((item) => {
+            const time = item.timestamp ? item.timestamp.slice(11, 16) : "--:--";
+            addLogEntry(time, item.message);
+          });
+        }
+      }
+    } catch (e) {}
   }
 
   function addLogEntry(time, text) {
@@ -375,19 +470,54 @@
 
     modalHookText.textContent = reel.viralHook;
     modalTranscriptText.textContent = reel.transcript || "Транскрипция речи отсутствует или обрабатывается.";
-
     modalKeyTakeaways.innerHTML = reel.takeaways.map((t) => `<li>${escapeHtml(t)}</li>`).join("");
-
-    modalTelegramBtn.onclick = () => sendTelegramAlert(reel);
 
     reelDetailModal.classList.add("active");
   }
 
-  function sendTelegramAlert(reel) {
-    alert(`✈️ Telegram Alert Sent!\n\nКарточка Reels от ${reel.author} успешно отправлена в ваш Telegram-канал с полным саммари и разбором хука.`);
-  }
-
   function attachEvents() {
+    // Top Tabs
+    tabReelsBtn.addEventListener("click", () => switchTab("reels"));
+    tabAuditBtn.addEventListener("click", () => switchTab("audit"));
+    navAllProfilesBtn.addEventListener("click", resetToAllProfiles);
+    navAuditModeBtn.addEventListener("click", () => switchTab("audit"));
+
+    // Delete active profile from banner
+    btnDeleteActiveProfile.addEventListener("click", () => {
+      if (activeProfile) deleteProfile(activeProfile);
+    });
+
+    // Copy Sales Pitch
+    copyPitchBtn.addEventListener("click", () => {
+      const text = salesPitchTextBox.textContent;
+      if (!text) return;
+      navigator.clipboard.writeText(text).then(() => {
+        copyPitchIcon.textContent = "✅";
+        copyPitchText.textContent = "Скопировано в буфер!";
+        setTimeout(() => {
+          copyPitchIcon.textContent = "📋";
+          copyPitchText.textContent = "Скопировать Sales Pitch";
+        }, 2200);
+      });
+    });
+
+    // Refresh Audit
+    refreshAuditBtn.addEventListener("click", async () => {
+      if (!activeProfile) return;
+      refreshAuditBtn.disabled = true;
+      refreshAuditBtn.textContent = "⏳ Перегенерация...";
+      try {
+        const res = await fetch(`/api/profiles/${encodeURIComponent(activeProfile)}/audit`, { method: "POST" });
+        if (res.ok) {
+          const newAudit = await res.json();
+          renderAudit(newAudit);
+        }
+      } catch (e) {}
+      refreshAuditBtn.disabled = false;
+      refreshAuditBtn.textContent = "🔄 Перегенерировать аудит";
+    });
+
+    // Search & Category Filters
     searchInput.addEventListener("input", (e) => {
       searchQuery = e.target.value.trim().toLowerCase();
       renderReels();
@@ -418,13 +548,20 @@
     cancelProfileBtn.addEventListener("click", () => addProfileModal.classList.remove("active"));
     
     saveProfileBtn.addEventListener("click", async () => {
-      const username = profileUsername.value.trim().replace(/^@/, "");
-      if (!username) return;
+      let rawVal = profileUsername.value.trim();
+      if (!rawVal) return;
+
+      // Extract username if URL is pasted
+      if (rawVal.includes("instagram.com/")) {
+        const m = rawVal.match(/instagram\.com\/([A-Za-z0-9_.]+)/);
+        if (m) rawVal = m[1];
+      }
+      const username = rawVal.replace(/^@/, "").split("?")[0].replace(/\/$/, "");
 
       const newP = {
         username: username,
         followers: "Новый",
-        status: "scanning",
+        status: "active",
         category: profileCategory.value
       };
 
@@ -439,7 +576,7 @@
       profiles.unshift(newP);
       renderProfiles();
       addProfileModal.classList.remove("active");
-      addLogEntry(getCurrentTime(), `Added target @${username} to monitor queue`);
+      selectProfile(username);
     });
 
     // Close Reel Detail Modal
@@ -447,78 +584,9 @@
     closeReelModalBtn.addEventListener("click", () => reelDetailModal.classList.remove("active"));
 
     // Trigger Simulation Scan
-    scanNowBtn.addEventListener("click", triggerAgentSimulation);
-  }
-
-  function triggerAgentSimulation() {
-    scanNowBtn.disabled = true;
-    scanNowBtn.style.opacity = "0.7";
-    scanNowBtn.textContent = "⏳ Сканирование профилей...";
-
-    currentTaskLabel.textContent = "Current Task: Scraping Instagram Reels...";
-    currentTaskProgressBar.style.width = "20%";
-    currentTaskProgressNum.textContent = "20%";
-    addLogEntry(getCurrentTime(), "Launched background Instaloader headless session");
-
-    setTimeout(() => {
-      currentTaskProgressBar.style.width = "55%";
-      currentTaskProgressNum.textContent = "55%";
-      currentTaskLabel.textContent = "Current Task: Extracting audio & Whisper transcription...";
-      addLogEntry(getCurrentTime(), "Downloaded media stream, running faster-whisper speech-to-text");
-    }, 1200);
-
-    setTimeout(() => {
-      currentTaskProgressBar.style.width = "85%";
-      currentTaskProgressNum.textContent = "85%";
-      currentTaskLabel.textContent = "Current Task: Gemini Flash multimodal hook analysis (3 frames)...";
-      addLogEntry(getCurrentTime(), "Captured 3 hook frames (0.5s, 1.5s, 3.0s) & evaluating virality");
-    }, 2400);
-
-    setTimeout(() => {
-      currentTaskProgressBar.style.width = "100%";
-      currentTaskProgressNum.textContent = "100%";
-      currentTaskLabel.textContent = "Current Task: Idle (Monitoring)";
-      
-      const newReel = {
-        id: "reel-" + Date.now(),
-        author: "@StartupHub",
-        authorName: "Startup Hub",
-        timestamp: "Только что",
-        category: "Startups",
-        duration: "0:41",
-        views: "1.1M",
-        likes: "92K",
-        comments: "1.1K",
-        shares: "21K",
-        sentimentScore: 97,
-        sentimentLabel: "97% Viral",
-        tags: ["Growth", "Bootstrapping", "Viral"],
-        viralHook: "«This 1-person startup makes $40k/month.» — High-contrast caption hook, immediate MRR dashboard reveal.",
-        hookScore: 9.4,
-        viralityScore: 97,
-        hookType: "Curiosity Gap (Любопытство)",
-        hookFrames: [],
-        transcript: "Here is how a solo developer built a micro-SaaS with zero funding. He picked a single niche problem, automated the entire customer acquisition pipeline using autonomous AI agents, and scaled to 40 thousand dollars in monthly recurring revenue in less than 9 months.",
-        takeaways: [
-          "Визуальный хук с демонстрацией реального дашборда дохода",
-          "Пошаговая разбивка методологии без лишней воды",
-          "Призыв перейти по ссылке в био для получения шаблона"
-        ]
-      };
-
-      reels.unshift(newReel);
-      renderReels();
-      addLogEntry(getCurrentTime(), `Discovered new viral Reel by ${newReel.author}! Multimodal hook: 9.4/10`);
-
-      scanNowBtn.disabled = false;
-      scanNowBtn.style.opacity = "1";
-      scanNowBtn.textContent = "⚡ Запустить сканирование";
-    }, 3600);
-  }
-
-  function getCurrentTime() {
-    const d = new Date();
-    return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+    scanNowBtn.addEventListener("click", () => {
+      alert("⚡ Запущено сканирование! Вы также можете запустить в терминале:\n\npython watch.py " + (activeProfile || "sentimentalka_smm"));
+    });
   }
 
   function escapeHtml(str) {

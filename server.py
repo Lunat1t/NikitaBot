@@ -2,7 +2,8 @@
 """Local development server for NikitaBot AI Reels Agent Dashboard.
 
 Standard library only: http.server, socketserver, json, sys, os, argparse.
-Serves web UI, handles /api/health, /api/profiles, /api/reels, /api/logs,
+Serves web UI, handles /api/health, /api/profiles (GET, POST, DELETE),
+/api/profiles/<username>/audit, /api/reels, /api/logs,
 and serves hook frame thumbnails from /thumbnails/<filename>.
 """
 import argparse
@@ -18,6 +19,7 @@ ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT_DIR)
 
 from storage.database import NikitaDatabase
+from ai_analyzer.profile_auditor import ProfileAuditor
 
 DEFAULT_PORT = 8080
 WEB_DIR = os.path.join(ROOT_DIR, "web")
@@ -27,8 +29,9 @@ CONFIG_TARGETS_PATH = os.path.join(ROOT_DIR, "config", "targets.json")
 
 os.makedirs(THUMBNAILS_DIR, exist_ok=True)
 
-# Shared database instance
+# Shared database and auditor instances
 db = NikitaDatabase()
+auditor = ProfileAuditor()
 
 
 class NikitaBotHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
@@ -37,7 +40,7 @@ class NikitaBotHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
 
     def end_headers(self):
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
         super().end_headers()
@@ -49,6 +52,7 @@ class NikitaBotHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
         path = parsed.path
+        query = parse_qs(parsed.query)
 
         # Serve hook thumbnails from data/thumbnails/
         if path.startswith("/thumbnails/"):
@@ -80,21 +84,39 @@ class NikitaBotHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             response = {
                 "status": "ok",
                 "service": "nikitabot-reels-agent",
-                "version": "1.2.0",
-                "mode": "autonomous-watcher",
+                "version": "2.0.0",
+                "mode": "sales-marketer-assistant",
                 "database": "sqlite3",
                 "engines": {
                     "scraper": "Instaloader + yt-dlp",
                     "whisper": "faster-whisper (base model, offline)",
                     "hook_analyzer": "Google Gemini Flash (multimodal) + local heuristic",
+                    "profile_auditor": "Sales & Marketing Content Auditor",
                     "media_processor": "FFmpeg keyframes (0.5s, 1.5s, 3.0s)"
                 }
             }
             self.wfile.write(json.dumps(response, ensure_ascii=False, indent=2).encode("utf-8"))
             return
 
-        # Target profiles API
-        if path == "/api/profiles":
+        # Profile Audit endpoint: /api/profiles/<username>/audit
+        if path.startswith("/api/profiles/") and path.endswith("/audit"):
+            parts = path.strip("/").split("/")
+            if len(parts) >= 3:
+                user = parts[2].replace("@", "")
+                audit = db.get_profile_audit(user)
+                if not audit:
+                    reels = db.get_watched_reels(limit=20, username=user)
+                    audit = auditor.audit_profile(user, reels)
+                    db.save_profile_audit(user, audit)
+
+                self.send_response(HTTPStatus.OK)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps(audit, ensure_ascii=False, indent=2).encode("utf-8"))
+                return
+
+        # Target profiles API with live statistics
+        if path in ("/api/profiles", "/api/profiles/"):
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
@@ -105,15 +127,24 @@ class NikitaBotHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
                         targets = json.load(f)
                     except Exception:
                         targets = []
+
+            # Enrich with real stats from SQLite
+            for t in targets:
+                uname = t.get("username", "")
+                stats = db.get_profile_stats(uname)
+                t["stats"] = stats
+                t["audit_exists"] = db.get_profile_audit(uname) is not None
+
             self.wfile.write(json.dumps(targets, ensure_ascii=False).encode("utf-8"))
             return
 
-        # Live Watched Reels API
+        # Live Watched Reels API (supports ?username=...)
         if path == "/api/reels":
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
-            reels = db.get_watched_reels(limit=50)
+            filter_user = query.get("username", [None])[0]
+            reels = db.get_watched_reels(limit=50, username=filter_user)
             self.wfile.write(json.dumps(reels, ensure_ascii=False).encode("utf-8"))
             return
 
@@ -136,6 +167,7 @@ class NikitaBotHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
 
+        # Add profile
         if path == "/api/profiles":
             content_length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(content_length).decode("utf-8")
@@ -145,11 +177,17 @@ class NikitaBotHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
                 if os.path.exists(CONFIG_TARGETS_PATH):
                     with open(CONFIG_TARGETS_PATH, "r", encoding="utf-8") as f:
                         targets = json.load(f)
-                targets.insert(0, new_target)
-                with open(CONFIG_TARGETS_PATH, "w", encoding="utf-8") as f:
-                    json.dump(targets, f, ensure_ascii=False, indent=2)
 
-                db.add_log("PROFILE_ADDED", f"Added target @{new_target.get('username')}", new_target)
+                # Avoid duplicate entries in targets.json
+                existing_users = {t.get("username", "").lower() for t in targets}
+                uname = new_target.get("username", "").strip().replace("@", "")
+                if uname.lower() not in existing_users:
+                    new_target["username"] = uname
+                    targets.insert(0, new_target)
+                    with open(CONFIG_TARGETS_PATH, "w", encoding="utf-8") as f:
+                        json.dump(targets, f, ensure_ascii=False, indent=2)
+
+                db.add_log("PROFILE_ADDED", f"Added target @{uname}", new_target)
 
                 self.send_response(HTTPStatus.CREATED)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -161,6 +199,49 @@ class NikitaBotHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_header("Content-Type", "application/json; charset=utf-8")
                 self.end_headers()
                 self.wfile.write(json.dumps({"error": str(e)}).encode("utf-8"))
+                return
+
+        # Force regenerate audit: POST /api/profiles/<username>/audit
+        if path.startswith("/api/profiles/") and path.endswith("/audit"):
+            parts = path.strip("/").split("/")
+            if len(parts) >= 3:
+                user = parts[2].replace("@", "")
+                reels = db.get_watched_reels(limit=20, username=user)
+                audit = auditor.audit_profile(user, reels)
+                db.save_profile_audit(user, audit)
+
+                self.send_response(HTTPStatus.OK)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps(audit, ensure_ascii=False, indent=2).encode("utf-8"))
+                return
+
+        self.send_response(HTTPStatus.NOT_FOUND)
+        self.end_headers()
+
+    def do_DELETE(self):
+        parsed = urlparse(self.path)
+        path = parsed.path
+
+        # DELETE /api/profiles/<username>
+        if path.startswith("/api/profiles/"):
+            username = path.replace("/api/profiles/", "").strip().replace("@", "")
+            if username:
+                if os.path.exists(CONFIG_TARGETS_PATH):
+                    try:
+                        with open(CONFIG_TARGETS_PATH, "r", encoding="utf-8") as f:
+                            targets = json.load(f)
+                        targets = [t for t in targets if t.get("username", "").lower() != username.lower()]
+                        with open(CONFIG_TARGETS_PATH, "w", encoding="utf-8") as f:
+                            json.dump(targets, f, ensure_ascii=False, indent=2)
+                    except Exception:
+                        pass
+
+                db.delete_profile(username)
+                self.send_response(HTTPStatus.OK)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "deleted", "username": username}).encode("utf-8"))
                 return
 
         self.send_response(HTTPStatus.NOT_FOUND)
@@ -175,6 +256,8 @@ def run_server(port: int = DEFAULT_PORT):
         print(f"  Serving web UI from: {WEB_DIR}")
         print(f"  Health check API:    http://localhost:{port}/api/health")
         print(f"  Watched Reels API:   http://localhost:{port}/api/reels")
+        print(f"  Target Profiles API: http://localhost:{port}/api/profiles (GET, POST, DELETE)")
+        print(f"  Profile Audit API:   http://localhost:{port}/api/profiles/<user>/audit")
         print(f"  Agent Logs API:      http://localhost:{port}/api/logs")
         print(f"  Thumbnails route:    http://localhost:{port}/thumbnails/")
         print(f"  Press Ctrl+C to stop dev server")

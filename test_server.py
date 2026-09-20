@@ -35,7 +35,7 @@ class TestNikitaBotServer(unittest.TestCase):
             body = resp.read().decode("utf-8")
             self.assertIn("AI REELS AGENT", body)
             self.assertIn("NikitaBot", body)
-            self.assertIn("Scanned Instagram Reels", body)
+            self.assertIn("Sales & Marketing", body)
 
     def test_02_styles_css_served(self):
         url = f"http://127.0.0.1:{TEST_PORT}/styles.css"
@@ -53,7 +53,6 @@ class TestNikitaBotServer(unittest.TestCase):
             self.assertEqual(resp.status, 200)
             body = resp.read().decode("utf-8")
             self.assertIn("NikitaBot AI Reels Agent", body)
-            self.assertIn("triggerAgentSimulation", body)
 
     def test_04_health_api(self):
         url = f"http://127.0.0.1:{TEST_PORT}/api/health"
@@ -73,6 +72,19 @@ class TestNikitaBotServer(unittest.TestCase):
             data = json.loads(resp.read().decode("utf-8"))
             self.assertIsInstance(data, list)
             self.assertGreaterEqual(len(data), 1)
+            # Check enriched stats
+            first = data[0]
+            self.assertIn("stats", first)
+
+    def test_06_profile_audit_api(self):
+        url = f"http://127.0.0.1:{TEST_PORT}/api/profiles/sentimentalka_smm/audit"
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req) as resp:
+            self.assertEqual(resp.status, 200)
+            audit = json.loads(resp.read().decode("utf-8"))
+            self.assertIn("strengths", audit)
+            self.assertIn("weaknesses", audit)
+            self.assertIn("sales_pitch", audit)
 
 
 if __name__ == "__main__":
