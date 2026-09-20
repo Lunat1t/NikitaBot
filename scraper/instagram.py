@@ -192,23 +192,23 @@ class InstagramScraper:
         """Fetch recent reels and posts from a public profile. If limit is None or 0, fetches all available."""
         clean_user = extract_username(username)
 
-        # 1. Prioritize Bright Data Dataset Scraper API (dataset_id=gd_lk5ns7kz21pck8jpis)
-        if self.brightdata_scraper.is_configured():
-            logger.info("Using Bright Data Dataset API for @%s (limit=%s)", clean_user, limit)
-            target_limit = limit if (limit and limit > 0) else 10
-            bd_res = self.brightdata_scraper.scrape_profile_reels(clean_user, limit=target_limit)
-            if bd_res.status == "success" and bd_res.reels and getattr(bd_res, "source", "") != "brightdata_simulation":
-                return bd_res
-            logger.warning("Bright Data API returned empty or error (%s), cascading to Apify.", getattr(bd_res, "error_message", ""))
-
-        # 2. Secondary: Apify Instagram Scraper actor (apify/instagram-scraper)
+        # 1. Primary Profile Scraper: Apify Instagram Scraper actor (apify/instagram-scraper)
         if self.apify_scraper.is_configured():
             logger.info("Using Apify Instagram Scraper actor for @%s (limit=%s)", clean_user, limit)
             target_limit = limit if (limit and limit > 0) else 10
             apify_res = self.apify_scraper.scrape_profile_reels(clean_user, limit=target_limit)
             if apify_res.status == "success" and apify_res.reels and getattr(apify_res, "source", "") != "apify_simulation":
                 return apify_res
-            logger.warning("Apify actor returned empty or error (%s), falling back to local scraper.", getattr(apify_res, "error_message", ""))
+            logger.warning("Apify actor returned empty or error (%s), cascading to Bright Data.", getattr(apify_res, "error_message", ""))
+
+        # 2. Secondary: Bright Data Dataset Scraper API
+        if self.brightdata_scraper.is_configured():
+            logger.info("Using Bright Data Dataset API for @%s (limit=%s)", clean_user, limit)
+            target_limit = limit if (limit and limit > 0) else 10
+            bd_res = self.brightdata_scraper.scrape_profile_reels(clean_user, limit=target_limit)
+            if bd_res.status == "success" and bd_res.reels and getattr(bd_res, "source", "") != "brightdata_simulation":
+                return bd_res
+            logger.warning("Bright Data API returned empty or error (%s), falling back to local scraper.", getattr(bd_res, "error_message", ""))
 
         self.session_manager.polite_delay()
 

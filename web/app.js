@@ -98,13 +98,16 @@
     const durStr = durationSec ? `${Math.floor(durationSec / 60)}:${String(Math.floor(durationSec % 60)).padStart(2, "0")}` : "0:30";
     const vScore = dbR.virality_score || 75;
 
+    const prof = profiles.find((p) => p.username.toLowerCase() === (dbR.username || "").toLowerCase());
+    const reelCategory = prof ? (prof.category || "Общий") : "Общий";
+
     return {
       id: dbR.shortcode,
       author: `@${dbR.username}`,
       authorName: dbR.username,
       timestamp: dbR.watched_at ? dbR.watched_at.slice(0, 16).replace("T", " ") : "Недавно",
       watchedAt: dbR.watched_at,
-      category: "Tech",
+      category: reelCategory,
       duration: durStr,
       views: dbR.views_count ? `${(dbR.views_count / 1000).toFixed(1)}K` : "—",
       likes: dbR.likes_count ? `${(dbR.likes_count / 1000).toFixed(1)}K` : "0",
@@ -853,21 +856,51 @@
         console.error("Scan trigger error:", e);
       }
 
-      // Wait briefly for first reels to be processed, then refresh
-      setTimeout(async () => {
+      // Actively poll API while agent scans profile in background
+      let pollCount = 0;
+      const maxPolls = 20; // 50 seconds max
+      const pollInterval = setInterval(async () => {
+        pollCount++;
         await loadProfiles();
         renderProfiles();
         await loadReelsFromApi();
         renderReels();
         if (activeProfile) {
           updateHeroBanner();
-          loadProfileAudit(activeProfile);
         }
 
-        scanNowBtn.disabled = false;
-        scanNowBtn.style.opacity = "1";
-        scanNowBtn.innerHTML = `<span>⚡ Запустить сканирование</span>`;
-      }, 4000);
+        // Check if watch completed in agent logs
+        let scanDone = false;
+        try {
+          const logRes = await fetch("/api/logs");
+          if (logRes.ok) {
+            const logs = await logRes.json();
+            const recentLog = logs.find(l => 
+              (l.event_type === "WATCH_COMPLETED" || l.event_type === "WATCH_FAILED") &&
+              l.message.includes(targetUser)
+            );
+            if (recentLog && pollCount >= 3) {
+              scanDone = true;
+            }
+          }
+        } catch (e) {}
+
+        if (scanDone || pollCount >= maxPolls) {
+          clearInterval(pollInterval);
+          await loadProfiles();
+          renderProfiles();
+          await loadReelsFromApi();
+          renderReels();
+          if (activeProfile) {
+            updateHeroBanner();
+            loadProfileAudit(activeProfile);
+          }
+          scanNowBtn.disabled = false;
+          scanNowBtn.style.opacity = "1";
+          scanNowBtn.innerHTML = `<span>⚡ Запустить сканирование</span>`;
+          addLogEntry(getCurrentTime(), `Сканирование @${targetUser} завершено.`);
+        }
+      }, 2500);
     });
   }
 

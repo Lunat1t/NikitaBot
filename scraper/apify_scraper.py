@@ -72,8 +72,8 @@ class ApifyInstagramScraper:
         logger.info("Calling Apify actor '%s' for %s (limit=%d)...", self.ACTOR_ID, profile_url, limit)
 
         run_input = {
-            "directUrls": [profile_url, f"https://www.instagram.com/{clean_user}/"],
-            "resultsType": "posts",
+            "directUrls": [profile_url],
+            "resultsType": "reels",
             "resultsLimit": limit,
             "searchType": "user"
         }
