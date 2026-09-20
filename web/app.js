@@ -9,6 +9,7 @@
   let searchQuery = "";
   let categoryFilter = "all";
   let currentTab = "reels"; // 'reels' or 'audit'
+  let currentModalReel = null;
 
   // DOM Elements
   const profilesContainer = document.getElementById("profilesContainer");
@@ -331,6 +332,12 @@
         `;
       }
 
+      const sc = reel.shortcode || reel.id || "";
+      let cardVideoUrl = reel.videoUrl;
+      if (!cardVideoUrl || cardVideoUrl.startsWith("http://") || cardVideoUrl.startsWith("https://")) {
+        cardVideoUrl = `/videos/${encodeURIComponent(sc)}.mp4`;
+      }
+
       card.innerHTML = `
         <div class="card-top-row">
           <div class="author-wrap">
@@ -370,11 +377,14 @@
             <span>▶️ Смотреть Reel</span>
           </button>
           <button class="btn-detail view-analysis-btn" style="flex: 1; cursor: pointer;">Разбор & Кадры</button>
+          <button class="btn-delete-reel delete-reel-card-btn" style="background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 8px; padding: 8px 10px; cursor: pointer; font-size: 13px; transition: all 0.2s;" title="Удалить этот Reel">
+            🗑
+          </button>
         </div>
-        ${reel.videoUrl ? `
+        ${cardVideoUrl ? `
           <div style="margin-top: 8px; text-align: center;">
-            <a href="${reel.videoUrl}" target="_blank" style="font-size: 11px; color: #38bdf8; text-decoration: underline; opacity: 0.85;" title="Открыть исходный файл H.264 MP4">
-              ↗ Открыть видео напрямую (.mp4)
+            <a href="${cardVideoUrl}" target="_blank" style="font-size: 11px; color: #38bdf8; text-decoration: underline; opacity: 0.85;" title="Открыть исходный файл H.264 MP4">
+              ↗ Открыть видео напрямую (${escapeHtml(sc)}.mp4)
             </a>
           </div>
         ` : ""}
@@ -393,6 +403,14 @@
         viewBtn.addEventListener("click", (e) => {
           e.stopPropagation();
           openReelDetails(reel, false);
+        });
+      }
+
+      const delBtn = card.querySelector(".delete-reel-card-btn");
+      if (delBtn) {
+        delBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          confirmAndDeleteReel(reel.shortcode || reel.id, false);
         });
       }
 
@@ -480,6 +498,8 @@
 
   function openReelDetails(reel, autoPlay = false) {
     if (!reel) return;
+    currentModalReel = reel;
+    const sc = reel.shortcode || reel.id || "";
     try {
       if (modalReelTitle) {
         modalReelTitle.textContent = `${reel.author} • Разбор и кадры`;
@@ -489,11 +509,17 @@
         durTag.textContent = reel.duration || "0:30";
       }
 
+      // Always resolve to safe local endpoint to prevent Instagram CDN CORS/403 errors
+      let streamUrl = reel.videoUrl;
+      if (!streamUrl || streamUrl.startsWith("http://") || streamUrl.startsWith("https://")) {
+        streamUrl = `/videos/${encodeURIComponent(sc)}.mp4`;
+      }
+
       const modalVideoPlayer = document.getElementById("modalVideoPlayer");
       const modalDirectVideoLink = document.getElementById("modalDirectVideoLink");
       if (modalVideoPlayer) {
-        if (reel.videoUrl) {
-          modalVideoPlayer.src = reel.videoUrl;
+        if (streamUrl) {
+          modalVideoPlayer.src = streamUrl;
           if (reel.thumbnailUrl) modalVideoPlayer.poster = reel.thumbnailUrl;
           modalVideoPlayer.load();
           if (autoPlay) {
@@ -509,10 +535,10 @@
         }
       }
       if (modalDirectVideoLink) {
-        if (reel.videoUrl) {
-          modalDirectVideoLink.href = reel.videoUrl;
+        if (streamUrl) {
+          modalDirectVideoLink.href = streamUrl;
           modalDirectVideoLink.style.display = "block";
-          modalDirectVideoLink.textContent = `↗ Открыть видео напрямую (${reel.id || "Reel"}.mp4)`;
+          modalDirectVideoLink.textContent = `↗ Открыть видео напрямую (${sc || "Reel"}.mp4)`;
         } else {
           modalDirectVideoLink.style.display = "none";
         }
@@ -576,6 +602,36 @@
     }
     if (reelDetailModal) {
       reelDetailModal.classList.remove("active");
+    }
+  }
+
+  async function confirmAndDeleteReel(shortcode, fromModal = false) {
+    if (!shortcode) return;
+    if (!confirm(`Удалить ролик (${shortcode}) из ленты и базы данных?`)) {
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/reels/${encodeURIComponent(shortcode)}`, {
+        method: "DELETE"
+      });
+      if (res.ok) {
+        if (fromModal) {
+          closeDetailModal();
+        }
+        // Remove reel from local state
+        reels = reels.filter((r) => (r.shortcode || r.id) !== shortcode);
+        renderReels(reels);
+        showNotification("Ролик успешно удален из ленты", "success");
+        // Refresh profile stats and logs
+        loadProfilesFromApi();
+        loadLogsFromApi();
+      } else {
+        showNotification("Не удалось удалить ролик", "error");
+      }
+    } catch (err) {
+      console.error("Delete reel error:", err);
+      showNotification("Ошибка сети при удалении ролика", "error");
     }
   }
 
@@ -696,6 +752,16 @@
         closeDetailModal();
       }
     });
+
+    const modalDeleteReelBtn = document.getElementById("modalDeleteReelBtn");
+    if (modalDeleteReelBtn) {
+      modalDeleteReelBtn.addEventListener("click", () => {
+        if (currentModalReel) {
+          const sc = currentModalReel.shortcode || currentModalReel.id;
+          confirmAndDeleteReel(sc, true);
+        }
+      });
+    }
 
     // Watch Reel / Video by direct URL Modal
     const openWatchUrlModalBtn = document.getElementById("openWatchUrlModalBtn");

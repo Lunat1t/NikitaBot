@@ -287,8 +287,70 @@ class NikitaDatabase:
                 item = dict(r)
                 item["tags"] = json.loads(item.get("tags_json") or "[]")
                 item["hook_frames"] = json.loads(item.get("hook_frames_json") or "[]")
+                # Ensure video_url is a reliable local playable stream URL
+                sc = item.get("shortcode", "")
+                raw_vurl = item.get("video_url") or ""
+                if raw_vurl.startswith("http://") or raw_vurl.startswith("https://") or not raw_vurl:
+                    item["video_url"] = f"/videos/{sc}.mp4"
                 result.append(item)
             return result
+
+    def delete_watched_reel(self, shortcode: str) -> bool:
+        """Deletes a watched reel from database and cleans up associated media files on disk."""
+        clean_sc = shortcode.strip()
+        with self._get_connection() as conn:
+            row = conn.execute(
+                "SELECT username, video_local_path, hook_frames_json FROM watched_reels WHERE shortcode = ?",
+                (clean_sc,)
+            ).fetchone()
+            if not row:
+                return False
+
+            username = row["username"]
+            v_path = row["video_local_path"]
+
+            # Remove from DB
+            conn.execute("DELETE FROM watched_reels WHERE shortcode = ?", (clean_sc,))
+
+            # Update total_watched count in watched_profiles
+            stats_row = conn.execute("SELECT COUNT(*) as cnt FROM watched_reels WHERE username = ?", (username,)).fetchone()
+            new_cnt = stats_row["cnt"] if stats_row else 0
+            conn.execute("UPDATE watched_profiles SET total_watched = ? WHERE username = ?", (new_cnt, username))
+
+        # Cleanup specific video path if recorded
+        if v_path and os.path.exists(v_path):
+            try:
+                os.remove(v_path)
+            except Exception:
+                pass
+
+        # Also search and remove matching files in data/videos and data/thumbnails
+        base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+        videos_dir = os.path.join(base_dir, "data", "videos")
+        thumbs_dir = os.path.join(base_dir, "data", "thumbnails")
+
+        if os.path.exists(videos_dir):
+            for fname in os.listdir(videos_dir):
+                if clean_sc in fname:
+                    try:
+                        os.remove(os.path.join(videos_dir, fname))
+                    except Exception:
+                        pass
+
+        if os.path.exists(thumbs_dir):
+            for fname in os.listdir(thumbs_dir):
+                if clean_sc in fname:
+                    try:
+                        os.remove(os.path.join(thumbs_dir, fname))
+                    except Exception:
+                        pass
+
+        self.add_log(
+            "REEL_DELETED",
+            f"Deleted reel {clean_sc} for @{username} and cleaned up disk media",
+            {"shortcode": clean_sc, "username": username}
+        )
+        return True
 
     def add_log(self, event_type: str, message: str, metadata: Optional[Dict[str, Any]] = None) -> None:
         """Add an autonomous agent log entry."""

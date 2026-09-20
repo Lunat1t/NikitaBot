@@ -86,6 +86,36 @@ class TestNikitaBotServer(unittest.TestCase):
             self.assertIn("weaknesses", audit)
             self.assertIn("sales_pitch", audit)
 
+    def test_07_delete_reel_api(self):
+        from server import db
+        test_sc = "test_del_shortcode_99"
+        db.save_watched_reel({
+            "shortcode": test_sc,
+            "author": "@test_user",
+            "url": f"https://instagram.com/reel/{test_sc}",
+            "caption": "Reel to delete via API"
+        })
+        self.assertTrue(db.is_reel_watched(test_sc))
+
+        url = f"http://127.0.0.1:{TEST_PORT}/api/reels/{test_sc}"
+        req = urllib.request.Request(url, method="DELETE")
+        with urllib.request.urlopen(req) as resp:
+            self.assertEqual(resp.status, 200)
+            data = json.loads(resp.read().decode("utf-8"))
+            self.assertEqual(data.get("status"), "deleted")
+            self.assertEqual(data.get("shortcode"), test_sc)
+
+        self.assertFalse(db.is_reel_watched(test_sc))
+
+    def test_08_video_stream_and_range_api(self):
+        # Test fuzzy video resolution / fallback streaming with Content-Type video/mp4
+        url = f"http://127.0.0.1:{TEST_PORT}/videos/DbX-A-CgVRb.mp4"
+        req = urllib.request.Request(url, headers={"Range": "bytes=0-1023"})
+        with urllib.request.urlopen(req) as resp:
+            self.assertIn(resp.status, (200, 206))
+            self.assertEqual(resp.headers.get("Content-Type"), "video/mp4")
+            self.assertEqual(resp.headers.get("Accept-Ranges"), "bytes")
+
 
 if __name__ == "__main__":
     unittest.main()

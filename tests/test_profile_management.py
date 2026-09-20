@@ -76,6 +76,26 @@ class TestProfileDatabaseOps(unittest.TestCase):
         self.assertTrue(res)
         self.assertIsNone(self.db.get_profile_audit("to_delete"))
 
+    def test_04_delete_watched_reel(self):
+        reel = {
+            "shortcode": "del_reel_123",
+            "author": "@creator_del",
+            "url": "https://instagram.com/reel/del_reel_123",
+            "caption": "Reel to delete",
+            "views_count": 5000,
+            "likes_count": 250,
+            "duration_seconds": 15.0
+        }
+        self.db.save_watched_reel(reel, analysis_data={"hook_score": 7.5, "virality_score": 70})
+        self.assertTrue(self.db.is_reel_watched("del_reel_123"))
+
+        # Now delete
+        res = self.db.delete_watched_reel("del_reel_123")
+        self.assertTrue(res)
+        self.assertFalse(self.db.is_reel_watched("del_reel_123"))
+        reels = self.db.get_watched_reels(username="creator_del")
+        self.assertEqual(len(reels), 0)
+
 
 if __name__ == "__main__":
     unittest.main()
