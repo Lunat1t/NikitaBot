@@ -12,7 +12,7 @@ from pathlib import Path
 import time
 from typing import Any, Dict, List, Optional
 
-from scraper.instagram import InstagramScraper
+from scraper.instagram import InstagramScraper, extract_username
 from scraper.models import ScrapedReel
 from storage.database import NikitaDatabase
 from processor.media import extract_audio, extract_hook_frames, cleanup_video
@@ -50,7 +50,7 @@ class ContentWatcherAgent:
         analyze_hook: bool = True
     ) -> Dict[str, Any]:
         """Inspect a single profile, watch its reels, transcribe, and evaluate hooks."""
-        clean_user = username.strip().replace("@", "")
+        clean_user = extract_username(username)
         print(f"\n=======================================================")
         print(f"👀 [NikitaBot] Начинаю просмотр профиля: @{clean_user}")
         print(f"=======================================================")
@@ -220,6 +220,89 @@ class ContentWatcherAgent:
                 time.sleep(2)  # polite pause between target profiles
 
         return summaries
+
+    def watch_single_reel(self, reel_url: str, analyze_hook: bool = True) -> Dict[str, Any]:
+        """Inspect and evaluate a single Reel directly by its URL."""
+        from scraper.instagram import extract_shortcode
+        shortcode = extract_shortcode(reel_url) or f"reel_{int(time.time())}"
+
+        print(f"\n=======================================================")
+        print(f"👀 [NikitaBot] Прямой просмотр и анализ Reel: {reel_url}")
+        print(f"=======================================================")
+
+        self.db.add_log("REEL_INSPECT_STARTED", f"Inspecting reel {reel_url}", {"url": reel_url, "shortcode": shortcode})
+
+        thumbnails_dir = os.path.join("data", "thumbnails")
+        os.makedirs(thumbnails_dir, exist_ok=True)
+
+        print(f"📥 Загружаю видеоряд рилса через yt-dlp...")
+        dl_res = self.scraper.download_reel_media(reel_url, f"direct_{shortcode}")
+        video_path = dl_res.get("video_path")
+
+        hook_frames = []
+        transcript_text = ""
+        analysis_data = {}
+
+        if isinstance(video_path, str) and os.path.exists(video_path):
+            # 1. Hook Frames (0.5s, 1.5s, 3.0s)
+            print(f"🎞️ Захват 3 кадров хука первых секунд (ffmpeg)...")
+            raw_frames = extract_hook_frames(video_path, output_dir=thumbnails_dir, timestamps=(0.5, 1.5, 3.0), shortcode=shortcode)
+            hook_frames = [os.path.basename(p) for p in raw_frames]
+
+            # 2. Extract audio & transcribe
+            print(f"🎙️ Извлечение звука и распознавание речи (faster-whisper)...")
+            wav_path = extract_audio(video_path)
+            if wav_path:
+                trans_res = self.transcriber.transcribe(wav_path)
+                transcript_text = trans_res.get("text", "")
+                if transcript_text:
+                    print(f"   💬 Текст: \"{transcript_text[:100]}...\"")
+
+            # 3. Gemini Flash Hook Analysis
+            if analyze_hook:
+                print(f"🧠 Мультимодальный анализ виральности (Gemini Flash)...")
+                analysis_data = self.analyzer.analyze(
+                    frame_paths=raw_frames,
+                    transcript=transcript_text,
+                    caption="",
+                    tags=[]
+                )
+                print(f"   🎯 Хук: {analysis_data.get('hook_score')}/10 | Виральность: {analysis_data.get('virality_score')}%")
+                print(f"   💡 Саммари: {analysis_data.get('summary')}")
+
+            # 4. Cleanup MP4
+            cleanup_video(video_path)
+
+        # Save to DB
+        reel_dict = {
+            "shortcode": shortcode,
+            "author": "@direct_reel",
+            "url": reel_url,
+            "caption": analysis_data.get("summary", "Direct reel inspect"),
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "duration_seconds": 30.0,
+            "views_count": 0,
+            "likes_count": 0,
+            "comments_count": 0,
+            "tags": ["reel", "direct"]
+        }
+        self.db.save_watched_reel(
+            reel_data=reel_dict,
+            video_local_path=None,
+            transcript=transcript_text,
+            analysis_data=analysis_data,
+            hook_frames=hook_frames
+        )
+
+        print(f"✅ Reel {shortcode} сохранен в базе NikitaBot и доступен на веб-дашборде!\n")
+        return {
+            "status": "success",
+            "shortcode": shortcode,
+            "hook_score": analysis_data.get("hook_score"),
+            "virality_score": analysis_data.get("virality_score"),
+            "transcript": transcript_text,
+            "hook_frames": hook_frames
+        }
 
     def start_continuous_loop(
         self,

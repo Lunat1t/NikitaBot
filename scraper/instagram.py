@@ -14,6 +14,25 @@ from .session_manager import SessionManager
 logger = logging.getLogger("nikitabot.scraper")
 
 
+def extract_username(input_str: str) -> str:
+    """Extracts clean Instagram username from a handle, @handle, or full profile URL."""
+    cleaned = input_str.strip()
+    if "?" in cleaned:
+        cleaned = cleaned.split("?")[0]
+    match = re.search(r"(?:https?://)?(?:www\.)?instagram\.com/([A-Za-z0-9_.]+)/?", cleaned)
+    if match:
+        return match.group(1).rstrip("/")
+    return cleaned.replace("@", "").strip("/")
+
+
+def extract_shortcode(input_str: str) -> Optional[str]:
+    """Extracts Reel or Post shortcode from an Instagram URL."""
+    match = re.search(r"instagram\.com/(?:reel|p)/([A-Za-z0-9_-]+)", input_str)
+    if match:
+        return match.group(1)
+    return None
+
+
 class InstagramScraper:
     """Free, open-source Instagram Reel & Post extractor."""
 
@@ -35,9 +54,17 @@ class InstagramScraper:
             quiet=True,
         )
 
+        session_user = os.getenv("INSTAGRAM_SESSION_USER")
+        if session_user:
+            try:
+                self.loader.load_session_from_file(session_user)
+                logger.info(f"Loaded Instagram session for {session_user}")
+            except Exception as e:
+                logger.warning(f"Could not load Instagram session for {session_user}: {e}")
+
     def fetch_profile_reels(self, username: str, limit: Optional[int] = 10) -> ScraperResult:
         """Fetch recent reels and posts from a public profile. If limit is None or 0, fetches all available."""
-        clean_user = username.strip().replace("@", "")
+        clean_user = extract_username(username)
         self.session_manager.polite_delay()
 
         reels: List[ScrapedReel] = []

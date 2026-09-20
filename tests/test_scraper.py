@@ -5,7 +5,22 @@ from unittest.mock import MagicMock, patch
 
 from scraper.models import ScrapedReel, ScraperResult
 from scraper.session_manager import SessionManager
-from scraper.instagram import InstagramScraper
+from scraper.instagram import InstagramScraper, extract_username
+
+
+class TestExtractUsername(unittest.TestCase):
+    def test_extract_from_various_inputs(self):
+        url1 = "https://www.instagram.com/sentimentalka_smm?utm_source=ig_web_button_share_sheet&stkn=ZDNlZDc0MzIxNw=="
+        self.assertEqual(extract_username(url1), "sentimentalka_smm")
+
+        url2 = "https://instagram.com/sentimentalka_smm/"
+        self.assertEqual(extract_username(url2), "sentimentalka_smm")
+
+        handle1 = "@sentimentalka_smm"
+        self.assertEqual(extract_username(handle1), "sentimentalka_smm")
+
+        raw = "sentimentalka_smm"
+        self.assertEqual(extract_username(raw), "sentimentalka_smm")
 
 
 class TestScraperModels(unittest.TestCase):

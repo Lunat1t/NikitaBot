@@ -9,7 +9,8 @@ from storage.database import NikitaDatabase
 
 def main():
     parser = argparse.ArgumentParser(description="NikitaBot Autonomous Reels Watcher")
-    parser.add_argument("username", nargs="?", help="Instagram username to watch (e.g. startup_hub)")
+    parser.add_argument("target", nargs="?", help="Instagram username or Reel URL to watch (e.g. sentimentalka_smm or https://instagram.com/reel/...)")
+    parser.add_argument("--reel", help="Direct URL of a specific reel to download, transcribe and analyze")
     parser.add_argument("--all", action="store_true", help="Watch all profiles from config/targets.json")
     parser.add_argument("--limit", type=int, default=10, help="Max posts/reels to scan per profile (default: 10)")
     parser.add_argument("--all-reels", action="store_true", help="Watch ALL available reels of the profile without limit")
@@ -51,14 +52,19 @@ def main():
         agent.watch_all_targets(download_media=args.download, analyze_hook=not args.no_analyze)
         return
 
-    if args.username:
-        agent.watch_profile(
-            args.username,
-            limit=effective_limit,
-            download_media=args.download,
-            analyze_hook=not args.no_analyze
-        )
-        return
+    target = args.reel or args.target
+    if target:
+        if "/reel/" in target or "/p/" in target:
+            agent.watch_single_reel(target, analyze_hook=not args.no_analyze)
+            return
+        else:
+            agent.watch_profile(
+                target,
+                limit=effective_limit,
+                download_media=args.download,
+                analyze_hook=not args.no_analyze
+            )
+            return
 
     parser.print_help()
 
