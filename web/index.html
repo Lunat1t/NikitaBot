@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Reels Agent • NikitaBot Dashboard</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+<body class="dashboard-body">
+  <!-- Main Grid Layout -->
+  <div class="app-layout">
+    
+    <!-- LEFT SIDEBAR: Profiles & Navigation -->
+    <aside class="sidebar-panel">
+      <div class="brand-header">
+        <div class="brand-logo">
+          <span class="logo-icon">🎬</span>
+          <div>
+            <h1 class="brand-title">AI REELS AGENT</h1>
+            <span class="brand-subtitle">NikitaBot • Autonomous Monitor</span>
+          </div>
+        </div>
+      </div>
+
+      <nav class="sidebar-nav">
+        <button class="nav-item active" data-tab="home">
+          <span class="nav-icon">🏠</span>
+          <span>Home Feed</span>
+        </button>
+        <button class="nav-item" data-tab="profiles">
+          <span class="nav-icon">👥</span>
+          <span>Profiles</span>
+          <span class="nav-badge" id="profilesCount">4</span>
+        </button>
+        <button class="nav-item" data-tab="automation">
+          <span class="nav-icon">⚡</span>
+          <span>Automation</span>
+          <span class="pulse-dot"></span>
+        </button>
+        <button class="nav-item" data-tab="settings">
+          <span class="nav-icon">⚙️</span>
+          <span>Settings</span>
+        </button>
+      </nav>
+
+      <!-- Target Profiles Section -->
+      <div class="target-profiles-section">
+        <div class="section-title-row">
+          <h3>Отслеживаемые профили</h3>
+          <button id="addProfileBtn" class="btn-icon-sm" title="Добавить профиль">+</button>
+        </div>
+        
+        <div class="profiles-list" id="profilesContainer">
+          <!-- Populated by JS -->
+        </div>
+      </div>
+
+      <div class="sidebar-footer">
+        <div class="system-health">
+          <span class="status-indicator online"></span>
+          <span>Scraper Engine: Online</span>
+        </div>
+        <button id="scanNowBtn" class="btn-scan-trigger">
+          <span>⚡ Запустить сканирование</span>
+        </button>
+      </div>
+    </aside>
+
+    <!-- CENTER FEED: Scanned Reels & Posts -->
+    <main class="main-content">
+      <!-- Top Bar -->
+      <header class="top-nav">
+        <div class="breadcrumbs">
+          <span>Dashboard</span>
+          <span class="crumb-sep">›</span>
+          <span class="current-crumb">Scanned Reels</span>
+        </div>
+
+        <div class="top-actions">
+          <div class="search-wrap">
+            <span class="search-icon">🔍</span>
+            <input type="text" id="searchInput" placeholder="Поиск по темам, хукам или авторам...">
+          </div>
+          
+          <div class="top-filter-group">
+            <select id="filterCategory" class="filter-select">
+              <option value="all">Все категории</option>
+              <option value="Tech">Technology & AI</option>
+              <option value="Startups">Startups & Business</option>
+              <option value="Gaming">Gaming & Memes</option>
+            </select>
+          </div>
+
+          <div class="user-pill">
+            <span class="user-avatar">🤖</span>
+            <span class="user-name">NikitaBot Agent</span>
+          </div>
+        </div>
+      </header>
+
+      <!-- Feed Container -->
+      <section class="feed-section">
+        <div class="feed-header">
+          <div>
+            <h2>Scanned Instagram Reels & Posts</h2>
+            <p class="feed-sub">Мультимодальный анализ видеоряда, хуков и транскриптов в реальном времени</p>
+          </div>
+          
+          <div class="view-toggles">
+            <button class="toggle-btn active" data-filter="all">Все (<span id="totalReelsCount">0</span>)</button>
+            <button class="toggle-btn" data-filter="viral">🔥 Виральные хуки</button>
+            <button class="toggle-btn" data-filter="positive">👍 Высокий sentiment</button>
+          </div>
+        </div>
+
+        <!-- Reels Cards Grid -->
+        <div class="reels-grid" id="reelsGrid">
+          <!-- Populated dynamically by app.js -->
+        </div>
+      </section>
+    </main>
+
+    <!-- RIGHT PANEL: Autonomous Activity & Insights -->
+    <aside class="insights-panel">
+      <!-- Current Activity Task -->
+      <div class="card-glass task-card">
+        <h3>Autonomous Agent Activity</h3>
+        <div class="current-task-status">
+          <div class="task-info-row">
+            <span class="task-label" id="currentTaskLabel">Current Task: Scraping @TheTechDaily</span>
+            <span class="task-percentage" id="currentTaskProgressNum">65%</span>
+          </div>
+          <div class="progress-bar-bg">
+            <div class="progress-bar-fill" id="currentTaskProgressBar" style="width: 65%;"></div>
+          </div>
+        </div>
+
+        <h4 class="sub-heading">Agent Activity Log</h4>
+        <div class="activity-log-stream" id="activityLogStream">
+          <!-- Live log rows -->
+        </div>
+      </div>
+
+      <!-- Scrapers Status Widget -->
+      <div class="card-glass scrapers-card">
+        <h3>Active Scrapers</h3>
+        <div class="scraper-row">
+          <span class="scraper-name">📸 Instagram (Instaloader + yt-dlp):</span>
+          <span class="badge-status status-running">Running</span>
+        </div>
+        <div class="scraper-row">
+          <span class="scraper-name">🎵 TikTok Scraper:</span>
+          <span class="badge-status status-scanning">Scanning</span>
+        </div>
+        <div class="scraper-row">
+          <span class="scraper-name">▶️ YouTube Shorts:</span>
+          <span class="badge-status status-idle">Idle</span>
+        </div>
+        <div class="scraper-row">
+          <span class="scraper-name">✈️ Telegram Notifier:</span>
+          <span class="badge-status status-active">Connected</span>
+        </div>
+      </div>
+
+      <!-- LLM Content Insights -->
+      <div class="card-glass insights-card">
+        <h3>LLM Content Insights</h3>
+        <p class="insights-desc">Трендовые темы и паттерны виральных хуков:</p>
+        <div class="tag-cloud">
+          <span class="cloud-tag tag-hot">#AI Tech (94%)</span>
+          <span class="cloud-tag tag-hot">#Automation</span>
+          <span class="cloud-tag">#Web3</span>
+          <span class="cloud-tag">#Gadgets</span>
+          <span class="cloud-tag">#Founders</span>
+          <span class="cloud-tag">#GrowthHacks</span>
+        </div>
+      </div>
+
+      <!-- Token Budget Metrics -->
+      <div class="card-glass budget-card">
+        <h3>Token Budget & Metrics</h3>
+        <div class="budget-stat">
+          <span class="budget-num">42.1K</span>
+          <span class="budget-max">/ 100K daily tokens</span>
+        </div>
+        <div class="progress-bar-bg">
+          <div class="progress-bar-fill" style="width: 42%;"></div>
+        </div>
+        <div class="budget-footer">
+          <span>Whisper: 18.2 мин транскрибаций</span>
+          <span>18.9K used today</span>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- MODAL: Add Target Profile -->
+  <div class="modal-overlay" id="addProfileModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Добавить профиль для мониторинга</h3>
+        <button class="modal-close" id="closeProfileModal">✕</button>
+      </div>
+      <div class="modal-body">
+        <label for="profileUsername">Username в Instagram (без @):</label>
+        <input type="text" id="profileUsername" placeholder="например: lexfridman, hubermanlab, techinsider">
+
+        <label for="profileCategory">Категория / Ниша:</label>
+        <select id="profileCategory">
+          <option value="Technology & AI">Technology & AI</option>
+          <option value="Startups & Business">Startups & Business</option>
+          <option value="Education & Science">Education & Science</option>
+          <option value="Marketing & Growth">Marketing & Growth</option>
+          <option value="Lifestyle & Fitness">Lifestyle & Fitness</option>
+        </select>
+
+        <label for="checkInterval">Частота сканирования:</label>
+        <select id="checkInterval">
+          <option value="15">Каждые 15 минут</option>
+          <option value="30">Каждые 30 минут</option>
+          <option value="60">Каждый час</option>
+          <option value="360">Каждые 6 часов</option>
+        </select>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-cancel" id="cancelProfileBtn">Отмена</button>
+        <button class="btn-primary" id="saveProfileBtn">Добавить в мониторинг</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Reel Multimodal Analysis Details -->
+  <div class="modal-overlay" id="reelDetailModal">
+    <div class="modal-card modal-wide">
+      <div class="modal-header">
+        <div class="detail-header-info">
+          <span class="detail-badge" id="modalPlatformBadge">Instagram Reel</span>
+          <h3 id="modalReelTitle">Reel Analysis Deep Dive</h3>
+        </div>
+        <button class="modal-close" id="closeReelModal">✕</button>
+      </div>
+      
+      <div class="modal-body detail-grid-layout">
+        <!-- Left video preview -->
+        <div class="modal-video-col">
+          <div class="video-mock-box" id="modalVideoBox">
+            <span class="play-symbol">▶</span>
+            <span class="vid-duration-tag" id="modalDurationTag">0:38</span>
+          </div>
+          <div class="video-metrics-bar" id="modalMetricsBar"></div>
+        </div>
+
+        <!-- Right analysis info -->
+        <div class="modal-analysis-col">
+          <div class="analysis-section">
+            <h4>🎯 Виральный хук (первые 3 сек):</h4>
+            <p id="modalHookText" class="hook-box"></p>
+          </div>
+
+          <div class="analysis-section">
+            <h4>🎙️ Полная транскрибация речи (Whisper):</h4>
+            <div id="modalTranscriptText" class="transcript-box"></div>
+          </div>
+
+          <div class="analysis-section">
+            <h4>💡 Структура сценария и ключевые тезисы:</h4>
+            <ul id="modalKeyTakeaways" class="takeaways-list"></ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn-telegram" id="modalTelegramBtn">✈️ Отправить саммари в Telegram</button>
+        <button class="btn-cancel" id="closeReelModalBtn">Закрыть</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

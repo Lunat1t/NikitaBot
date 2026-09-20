@@ -1,0 +1,22 @@
+# Core Scraping (Free & Open-Source)
+instaloader>=4.10.0
+yt-dlp>=2024.08.06
+
+# Audio & Speech-to-Text
+faster-whisper>=1.0.0
+
+# Telegram Bot Alerts
+aiogram>=3.13.0
+
+# Multimodal & LLM Analysis (Gemini / OpenAI)
+google-genai>=0.1.1
+openai>=1.50.0
+
+# Storage & Database
+sqlite3-to-mysql>=2.1.0; sys_platform == 'never' # documentation marker
+
+# Utilities
+python-dotenv>=1.0.1
+pydantic>=2.8.0
+aiohttp>=3.10.0
+requests>=2.32.0
