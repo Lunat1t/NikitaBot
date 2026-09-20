@@ -452,6 +452,7 @@
     modalDurationTag.textContent = reel.duration;
 
     const modalVideoPlayer = document.getElementById("modalVideoPlayer");
+    const modalDirectVideoLink = document.getElementById("modalDirectVideoLink");
     if (modalVideoPlayer) {
       if (reel.videoUrl) {
         modalVideoPlayer.src = reel.videoUrl;
@@ -462,6 +463,14 @@
         }
       } else {
         modalVideoPlayer.removeAttribute("src");
+      }
+    }
+    if (modalDirectVideoLink) {
+      if (reel.videoUrl) {
+        modalDirectVideoLink.href = reel.videoUrl;
+        modalDirectVideoLink.style.display = "block";
+      } else {
+        modalDirectVideoLink.style.display = "none";
       }
     }
 

@@ -89,23 +89,52 @@ class NikitaBotHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
                 self.end_headers()
                 return
 
-        # Serve video files from data/videos/
+        # Serve video files from data/videos/ with HTTP Range support (206 Partial Content)
         if path.startswith("/videos/"):
             filename = os.path.basename(path)
             file_path = os.path.join(VIDEOS_DIR, filename)
-            if os.path.exists(file_path) and os.path.isfile(file_path):
-                self.send_response(HTTPStatus.OK)
-                self.send_header("Content-Type", "video/mp4")
-                self.send_header("Accept-Ranges", "bytes")
-                self.send_header("Content-Length", str(os.path.getsize(file_path)))
-                self.end_headers()
-                with open(file_path, "rb") as f:
-                    self.wfile.write(f.read())
-                return
-            else:
+            if not os.path.exists(file_path) or not os.path.isfile(file_path):
                 self.send_response(HTTPStatus.NOT_FOUND)
                 self.end_headers()
                 return
+
+            file_size = os.path.getsize(file_path)
+            range_header = self.headers.get("Range")
+
+            if range_header and range_header.startswith("bytes="):
+                try:
+                    ranges = range_header.replace("bytes=", "").split("-")
+                    start = int(ranges[0]) if ranges[0] else 0
+                    end = int(ranges[1]) if len(ranges) > 1 and ranges[1] else file_size - 1
+                    if start >= file_size:
+                        self.send_response(HTTPStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
+                        self.send_header("Content-Range", f"bytes */{file_size}")
+                        self.end_headers()
+                        return
+
+                    length = end - start + 1
+                    self.send_response(HTTPStatus.PARTIAL_CONTENT)
+                    self.send_header("Content-Type", "video/mp4")
+                    self.send_header("Accept-Ranges", "bytes")
+                    self.send_header("Content-Range", f"bytes {start}-{end}/{file_size}")
+                    self.send_header("Content-Length", str(length))
+                    self.end_headers()
+
+                    with open(file_path, "rb") as f:
+                        f.seek(start)
+                        self.wfile.write(f.read(length))
+                    return
+                except Exception:
+                    pass
+
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "video/mp4")
+            self.send_header("Accept-Ranges", "bytes")
+            self.send_header("Content-Length", str(file_size))
+            self.end_headers()
+            with open(file_path, "rb") as f:
+                self.wfile.write(f.read())
+            return
 
         # Health check endpoint
         if path in ("/api/health", "/health"):
@@ -208,12 +237,14 @@ class NikitaBotHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
                 data = {}
             target_user = data.get("username", "sentimentalka_smm").strip().replace("@", "")
 
+            scan_limit = data.get("limit", None)
+
             # Execute watcher agent scan in background thread
             def run_scan_thread():
                 from agent.watcher import ContentWatcherAgent
                 agent = ContentWatcherAgent(db=db, auditor=auditor)
-                db.add_log("SCAN_TRIGGERED", f"Web UI initiated live scan for @{target_user}")
-                agent.watch_profile(target_user, limit=5, download_media=True, analyze_hook=True)
+                db.add_log("SCAN_TRIGGERED", f"Web UI initiated full scan for @{target_user}")
+                agent.watch_profile(target_user, limit=scan_limit, download_media=True, analyze_hook=True)
 
             t = threading.Thread(target=run_scan_thread, daemon=True)
             t.start()
