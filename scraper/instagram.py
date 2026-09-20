@@ -275,20 +275,23 @@ class InstagramScraper:
         except Exception as e:
             err_msg = str(e)
             logger.warning("Instaloader profile notice for @%s: %s", clean_user, err_msg)
-            if "429" in err_msg or "Too Many Requests" in err_msg or "login" in err_msg.lower() or "Connection" in type(e).__name__:
-                logger.info("Using smart content generator for @%s to enable Sales & Marketing audit.", clean_user)
-                target_count = limit if (limit and limit > 0) else 10
-                fallback_reels = self._generate_fallback_reels(clean_user, target_count)
-                return ScraperResult(
-                    status="success",
-                    target_username=clean_user,
-                    reels=fallback_reels,
-                    count=len(fallback_reels),
-                )
+            # Only use synthetic fallback if no real scrapers (Apify/Bright Data) are configured
+            if not self.apify_scraper.is_configured() and not self.brightdata_scraper.is_configured():
+                if "429" in err_msg or "Too Many Requests" in err_msg or "login" in err_msg.lower() or "Connection" in type(e).__name__:
+                    logger.info("Using smart content generator for @%s (offline demo mode).", clean_user)
+                    target_count = limit if (limit and limit > 0) else 10
+                    fallback_reels = self._generate_fallback_reels(clean_user, target_count)
+                    return ScraperResult(
+                        status="success",
+                        target_username=clean_user,
+                        reels=fallback_reels,
+                        count=len(fallback_reels),
+                        source="simulation"
+                    )
             return ScraperResult(
                 status="error",
                 target_username=clean_user,
-                error_message=err_msg,
+                error_message=f"Scraper error for @{clean_user}: {err_msg}",
                 reels=[],
             )
 

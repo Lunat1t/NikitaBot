@@ -99,6 +99,7 @@ def extract_hook_frames(
             "-ss", str(ts),
             "-i", str(video_path),
             "-vframes", "1",
+            "-update", "1",
             "-q:v", "2",
             "-loglevel", "error",
             str(out_path)

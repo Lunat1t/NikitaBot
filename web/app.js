@@ -312,9 +312,10 @@
         `;
       } else {
         framesStripHtml = `
-          <div class="thumbnail-box">
+          <div class="thumbnail-box card-video-preview" style="cursor: pointer; position: relative; overflow: hidden; background: #000;">
+            <video class="inline-card-player" src="${cardVideoUrl}" preload="metadata" playsinline controls style="width: 100%; height: 100%; object-fit: contain; display: none;"></video>
             <div class="thumb-bg-gradient"></div>
-            <div class="play-circle">▶</div>
+            <div class="play-circle" title="Нажмите для воспроизведения">▶</div>
             <span class="duration-tag">${reel.duration}</span>
           </div>
         `;
@@ -414,12 +415,40 @@
         });
       }
 
-      // Allow clicking on frames strip or thumbnail box to also open details
-      const frameEl = card.querySelector(".hook-frames-strip, .thumbnail-box");
-      if (frameEl) {
-        frameEl.style.cursor = "pointer";
-        frameEl.title = "Нажмите для подробного разбора и просмотра";
-        frameEl.addEventListener("click", () => openReelDetails(reel, false));
+      // Allow clicking on frames strip to open modal with auto-play
+      const framesStrip = card.querySelector(".hook-frames-strip");
+      if (framesStrip) {
+        framesStrip.style.cursor = "pointer";
+        framesStrip.title = "Нажмите для воспроизведения и подробного разбора";
+        framesStrip.addEventListener("click", () => openReelDetails(reel, true));
+      }
+
+      // Inline player on card thumbnail-box
+      const thumbBox = card.querySelector(".thumbnail-box");
+      if (thumbBox) {
+        thumbBox.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const inlineVideo = thumbBox.querySelector(".inline-card-player");
+          const playCircle = thumbBox.querySelector(".play-circle");
+          const bgGrad = thumbBox.querySelector(".thumb-bg-gradient");
+          const durTag = thumbBox.querySelector(".duration-tag");
+          if (inlineVideo && inlineVideo.style.display === "none") {
+            inlineVideo.style.display = "block";
+            if (playCircle) playCircle.style.display = "none";
+            if (bgGrad) bgGrad.style.display = "none";
+            if (durTag) durTag.style.display = "none";
+            inlineVideo.muted = false;
+            inlineVideo.play().catch(() => {
+              inlineVideo.muted = true;
+              inlineVideo.play().catch(err => {
+                console.warn("Inline play fallback to modal:", err);
+                openReelDetails(reel, true);
+              });
+            });
+          } else {
+            openReelDetails(reel, true);
+          }
+        });
       }
 
       reelsGrid.appendChild(card);
@@ -523,10 +552,13 @@
           if (reel.thumbnailUrl) modalVideoPlayer.poster = reel.thumbnailUrl;
           modalVideoPlayer.load();
           if (autoPlay) {
+            modalVideoPlayer.muted = false;
             const playPromise = modalVideoPlayer.play();
             if (playPromise !== undefined) {
               playPromise.catch((err) => {
-                console.warn("Autoplay deferred or requires user gesture:", err);
+                console.warn("Unmuted autoplay restricted, playing muted per browser policy:", err);
+                modalVideoPlayer.muted = true;
+                modalVideoPlayer.play().catch(e => console.warn("Muted autoplay also blocked:", e));
               });
             }
           }
