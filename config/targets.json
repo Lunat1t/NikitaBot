@@ -4,45 +4,5 @@
     "followers": "Новый",
     "status": "scanning",
     "category": "Marketing & Growth"
-  },
-  {
-    "id": "target-1",
-    "username": "TheTechDaily",
-    "name": "The Tech Daily",
-    "followers": "2.1M",
-    "status": "active",
-    "category": "Technology & AI",
-    "last_scanned": "15 минут назад",
-    "total_reels": 42
-  },
-  {
-    "id": "target-2",
-    "username": "StartupHub",
-    "name": "Startup Hub",
-    "followers": "980K",
-    "status": "scanning",
-    "category": "Startups & Business",
-    "last_scanned": "Сейчас",
-    "total_reels": 28
-  },
-  {
-    "id": "target-3",
-    "username": "ViralGamer",
-    "name": "Viral Gamer",
-    "followers": "1.4M",
-    "status": "active",
-    "category": "Gaming & Memes",
-    "last_scanned": "1 час назад",
-    "total_reels": 65
-  },
-  {
-    "id": "target-4",
-    "username": "DesignTrend",
-    "name": "Design Trend",
-    "followers": "650K",
-    "status": "paused",
-    "category": "UI/UX & Product",
-    "last_scanned": "Вчера",
-    "total_reels": 19
   }
 ]

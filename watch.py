@@ -1,8 +1,18 @@
 #!/usr/bin/env python3
 """CLI utility to run the NikitaBot Autonomous Content Watcher."""
-import argparse
+import os
 import sys
 
+# Auto-reexec in virtual environment if running with system python
+_script_dir = os.path.dirname(os.path.abspath(__file__))
+_venv_dir = os.path.join(_script_dir, ".venv")
+_venv_python = os.path.join(_venv_dir, "bin", "python")
+if os.path.exists(_venv_python) and sys.prefix != _venv_dir:
+    os.environ["VIRTUAL_ENV"] = _venv_dir
+    os.environ["PATH"] = os.path.join(_venv_dir, "bin") + os.pathsep + os.environ.get("PATH", "")
+    os.execv(_venv_python, [_venv_python] + sys.argv)
+
+import argparse
 from agent.watcher import ContentWatcherAgent
 from storage.database import NikitaDatabase
 

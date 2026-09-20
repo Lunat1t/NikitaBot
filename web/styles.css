@@ -1504,3 +1504,14 @@ body.dashboard-body {
   background: var(--cyan-accent);
   color: #0b0d13;
 }
+
+.btn-play-reel:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.15);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+}
+
+.video-player-container video {
+  outline: none;
+  background-color: #000;
+}

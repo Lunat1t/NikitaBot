@@ -116,6 +116,8 @@
       hookType: dbR.hook_type || "Dynamic Hook",
       transcript: dbR.transcript || "",
       hookFrames: dbR.hook_frames || [],
+      videoUrl: dbR.video_url || (dbR.shortcode ? `/videos/${dbR.shortcode}.mp4` : null),
+      thumbnailUrl: dbR.thumbnail_url || (dbR.hook_frames && dbR.hook_frames.length ? `/thumbnails/${dbR.hook_frames[0]}` : null),
       takeaways: [
         dbR.hook_dynamics || "Анализ смены планов в первые 3 секунды",
         dbR.hook_type ? `Тип хука: ${dbR.hook_type}` : "Оптимальная подача",
@@ -361,12 +363,16 @@
           ${transcriptHtml}
         </div>
 
-        <div class="card-actions">
-          <button class="btn-detail view-analysis-btn">Подробный разбор & Кадры</button>
+        <div class="card-actions" style="display: flex; gap: 8px;">
+          <button class="btn-play-reel watch-reel-btn" style="flex: 1; background: linear-gradient(135deg, #059669, #10b981); color: white; border: none; padding: 8px 10px; border-radius: 8px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 12px;">
+            <span>▶️ Смотреть Reel</span>
+          </button>
+          <button class="btn-detail view-analysis-btn" style="flex: 1;">Разбор & Кадры</button>
         </div>
       `;
 
-      card.querySelector(".view-analysis-btn").addEventListener("click", () => openReelDetails(reel));
+      card.querySelector(".watch-reel-btn").addEventListener("click", () => openReelDetails(reel, true));
+      card.querySelector(".view-analysis-btn").addEventListener("click", () => openReelDetails(reel, false));
       reelsGrid.appendChild(card);
     });
   }
@@ -441,9 +447,23 @@
     activityLogStream.prepend(row);
   }
 
-  function openReelDetails(reel) {
+  function openReelDetails(reel, autoPlay = false) {
     modalReelTitle.textContent = `${reel.author} • Multimodal Hook Analysis`;
     modalDurationTag.textContent = reel.duration;
+
+    const modalVideoPlayer = document.getElementById("modalVideoPlayer");
+    if (modalVideoPlayer) {
+      if (reel.videoUrl) {
+        modalVideoPlayer.src = reel.videoUrl;
+        if (reel.thumbnailUrl) modalVideoPlayer.poster = reel.thumbnailUrl;
+        modalVideoPlayer.load();
+        if (autoPlay) {
+          modalVideoPlayer.play().catch(() => {});
+        }
+      } else {
+        modalVideoPlayer.removeAttribute("src");
+      }
+    }
 
     let framesPreview = "";
     if (reel.hookFrames && reel.hookFrames.length > 0) {
@@ -473,6 +493,15 @@
     modalKeyTakeaways.innerHTML = reel.takeaways.map((t) => `<li>${escapeHtml(t)}</li>`).join("");
 
     reelDetailModal.classList.add("active");
+  }
+
+  function closeDetailModal() {
+    const modalVideoPlayer = document.getElementById("modalVideoPlayer");
+    if (modalVideoPlayer) {
+      modalVideoPlayer.pause();
+      modalVideoPlayer.currentTime = 0;
+    }
+    reelDetailModal.classList.remove("active");
   }
 
   function attachEvents() {
@@ -579,14 +608,89 @@
       selectProfile(username);
     });
 
-    // Close Reel Detail Modal
-    closeReelModal.addEventListener("click", () => reelDetailModal.classList.remove("active"));
-    closeReelModalBtn.addEventListener("click", () => reelDetailModal.classList.remove("active"));
+    // Close Reel Detail Modal & stop playback
+    closeReelModal.addEventListener("click", closeDetailModal);
+    closeReelModalBtn.addEventListener("click", closeDetailModal);
 
-    // Trigger Simulation Scan
-    scanNowBtn.addEventListener("click", () => {
-      alert("⚡ Запущено сканирование! Вы также можете запустить в терминале:\n\npython watch.py " + (activeProfile || "sentimentalka_smm"));
+    // Watch Reel / Video by direct URL Modal
+    const openWatchUrlModalBtn = document.getElementById("openWatchUrlModalBtn");
+    const watchUrlModal = document.getElementById("watchUrlModal");
+    const closeWatchUrlModal = document.getElementById("closeWatchUrlModal");
+    const cancelWatchUrlBtn = document.getElementById("cancelWatchUrlBtn");
+    const startWatchUrlBtn = document.getElementById("startWatchUrlBtn");
+    const watchUrlInput = document.getElementById("watchUrlInput");
+
+    if (openWatchUrlModalBtn && watchUrlModal) {
+      openWatchUrlModalBtn.addEventListener("click", () => {
+        watchUrlInput.value = "";
+        watchUrlModal.classList.add("active");
+        watchUrlInput.focus();
+      });
+      closeWatchUrlModal.addEventListener("click", () => watchUrlModal.classList.remove("active"));
+      cancelWatchUrlBtn.addEventListener("click", () => watchUrlModal.classList.remove("active"));
+      startWatchUrlBtn.addEventListener("click", async () => {
+        const targetUrl = watchUrlInput.value.trim();
+        if (!targetUrl) return;
+        startWatchUrlBtn.disabled = true;
+        startWatchUrlBtn.textContent = "⏳ Анализ...";
+        try {
+          await fetch("/api/watch-url", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ url: targetUrl })
+          });
+        } catch (e) {}
+        watchUrlModal.classList.remove("active");
+        startWatchUrlBtn.disabled = false;
+        startWatchUrlBtn.textContent = "▶️ Смотреть и анализировать";
+        addLogEntry(getCurrentTime(), `Запущен прямой анализ видео: ${targetUrl}`);
+        setTimeout(async () => {
+          await loadReelsFromApi();
+          renderReels();
+        }, 3000);
+      });
+    }
+
+    // Trigger Real Live Scan via API
+    scanNowBtn.addEventListener("click", async () => {
+      const targetUser = activeProfile || (profiles.length > 0 ? profiles[0].username : "sentimentalka_smm");
+      scanNowBtn.disabled = true;
+      scanNowBtn.style.opacity = "0.7";
+      scanNowBtn.innerHTML = `<span>⏳ Сканирую @${escapeHtml(targetUser)}...</span>`;
+
+      addLogEntry(getCurrentTime(), `Запущен автономный просмотр контента @${targetUser}`);
+
+      try {
+        await fetch("/api/scan", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username: targetUser })
+        });
+      } catch (e) {
+        console.error("Scan trigger error:", e);
+      }
+
+      // Wait briefly for first reels to be processed, then refresh
+      setTimeout(async () => {
+        await loadProfiles();
+        renderProfiles();
+        await loadReelsFromApi();
+        renderReels();
+        if (activeProfile) {
+          updateHeroBanner();
+          loadProfileAudit(activeProfile);
+        }
+
+        scanNowBtn.disabled = false;
+        scanNowBtn.style.opacity = "1";
+        scanNowBtn.innerHTML = `<span>⚡ Запустить сканирование</span>`;
+      }, 4000);
     });
+  }
+
+  function getCurrentTime() {
+    const d = new Date();
+    return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
   }
 
   function escapeHtml(str) {

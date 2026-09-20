@@ -86,6 +86,10 @@
             </select>
           </div>
 
+          <button class="btn-top-action" id="openWatchUrlModalBtn" style="background: linear-gradient(135deg, #4f46e5, #0284c7); color: white; border: none; padding: 7px 14px; border-radius: 8px; font-weight: 600; font-size: 13px; cursor: pointer; display: flex; align-items: center; gap: 6px;">
+            <span>🔗 Анализ по ссылке</span>
+          </button>
+
           <div class="user-pill">
             <span class="user-avatar">🤖</span>
             <span class="user-name">NikitaBot Pro</span>
@@ -307,7 +311,28 @@
     </div>
   </div>
 
-  <!-- MODAL: Reel Multimodal Analysis Details -->
+  <!-- MODAL: Watch Reel by URL -->
+  <div class="modal-overlay" id="watchUrlModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>🔗 Прямой просмотр Reel / видео</h3>
+        <button class="modal-close" id="closeWatchUrlModal">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-desc" style="color: var(--text-muted); font-size: 13px; margin-bottom: 16px;">Вставьте прямую ссылку на Instagram Reel, Shorts или MP4 для моментального извлечения 3 кадров хука, распознавания речи Whisper и аудита для маркетолога.</p>
+        <div class="form-group">
+          <label>URL ролика / Reels:</label>
+          <input type="text" id="watchUrlInput" placeholder="https://www.instagram.com/reel/... или ссылка">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-cancel" id="cancelWatchUrlBtn">Отмена</button>
+        <button class="btn-primary" id="startWatchUrlBtn">▶️ Смотреть и анализировать</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Reel Multimodal Analysis Details & Real Video Player -->
   <div class="modal-overlay" id="reelDetailModal">
     <div class="modal-card modal-wide">
       <div class="modal-header">
@@ -320,9 +345,8 @@
       
       <div class="modal-body detail-grid-layout">
         <div class="modal-video-col">
-          <div class="video-mock-box" id="modalVideoBox">
-            <span class="play-symbol">▶</span>
-            <span class="vid-duration-tag" id="modalDurationTag">0:38</span>
+          <div class="video-player-container" style="position: relative; border-radius: 12px; overflow: hidden; background: #000; box-shadow: 0 8px 24px rgba(0,0,0,0.5);">
+            <video id="modalVideoPlayer" controls playsinline preload="metadata" style="width: 100%; aspect-ratio: 9/16; max-height: 480px; object-fit: contain; display: block;"></video>
           </div>
           <div class="video-metrics-bar" id="modalMetricsBar"></div>
         </div>

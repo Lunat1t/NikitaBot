@@ -3,19 +3,30 @@
 
 Standard library only: http.server, socketserver, json, sys, os, argparse.
 Serves web UI, handles /api/health, /api/profiles (GET, POST, DELETE),
-/api/profiles/<username>/audit, /api/reels, /api/logs,
+/api/profiles/<username>/audit, /api/reels, /api/logs, /api/scan,
 and serves hook frame thumbnails from /thumbnails/<filename>.
 """
+import os
+import sys
+
+# Auto-reexec in virtual environment if running with system python
+_script_dir = os.path.dirname(os.path.abspath(__file__))
+_venv_dir = os.path.join(_script_dir, ".venv")
+_venv_python = os.path.join(_venv_dir, "bin", "python")
+if os.path.exists(_venv_python) and sys.prefix != _venv_dir:
+    os.environ["VIRTUAL_ENV"] = _venv_dir
+    os.environ["PATH"] = os.path.join(_venv_dir, "bin") + os.pathsep + os.environ.get("PATH", "")
+    os.execv(_venv_python, [_venv_python] + sys.argv)
+
 import argparse
 from http import HTTPStatus
 import http.server
 import json
-import os
 import socketserver
-import sys
+import threading
 from urllib.parse import parse_qs, urlparse
 
-ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR = _script_dir
 sys.path.insert(0, ROOT_DIR)
 
 from storage.database import NikitaDatabase
@@ -25,9 +36,11 @@ DEFAULT_PORT = 8080
 WEB_DIR = os.path.join(ROOT_DIR, "web")
 DATA_DIR = os.path.join(ROOT_DIR, "data")
 THUMBNAILS_DIR = os.path.join(DATA_DIR, "thumbnails")
+VIDEOS_DIR = os.path.join(DATA_DIR, "videos")
 CONFIG_TARGETS_PATH = os.path.join(ROOT_DIR, "config", "targets.json")
 
 os.makedirs(THUMBNAILS_DIR, exist_ok=True)
+os.makedirs(VIDEOS_DIR, exist_ok=True)
 
 # Shared database and auditor instances
 db = NikitaDatabase()
@@ -66,6 +79,24 @@ class NikitaBotHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
                     self.send_header("Content-Type", "image/png")
                 else:
                     self.send_header("Content-Type", "application/octet-stream")
+                self.send_header("Content-Length", str(os.path.getsize(file_path)))
+                self.end_headers()
+                with open(file_path, "rb") as f:
+                    self.wfile.write(f.read())
+                return
+            else:
+                self.send_response(HTTPStatus.NOT_FOUND)
+                self.end_headers()
+                return
+
+        # Serve video files from data/videos/
+        if path.startswith("/videos/"):
+            filename = os.path.basename(path)
+            file_path = os.path.join(VIDEOS_DIR, filename)
+            if os.path.exists(file_path) and os.path.isfile(file_path):
+                self.send_response(HTTPStatus.OK)
+                self.send_header("Content-Type", "video/mp4")
+                self.send_header("Accept-Ranges", "bytes")
                 self.send_header("Content-Length", str(os.path.getsize(file_path)))
                 self.end_headers()
                 with open(file_path, "rb") as f:
@@ -167,6 +198,69 @@ class NikitaBotHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
 
+        # Web scan trigger: POST /api/scan
+        if path == "/api/scan":
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length).decode("utf-8") if content_length > 0 else "{}"
+            try:
+                data = json.loads(body) if body else {}
+            except Exception:
+                data = {}
+            target_user = data.get("username", "sentimentalka_smm").strip().replace("@", "")
+
+            # Execute watcher agent scan in background thread
+            def run_scan_thread():
+                from agent.watcher import ContentWatcherAgent
+                agent = ContentWatcherAgent(db=db, auditor=auditor)
+                db.add_log("SCAN_TRIGGERED", f"Web UI initiated live scan for @{target_user}")
+                agent.watch_profile(target_user, limit=5, download_media=True, analyze_hook=True)
+
+            t = threading.Thread(target=run_scan_thread, daemon=True)
+            t.start()
+
+            self.send_response(HTTPStatus.ACCEPTED)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                "status": "scanning",
+                "message": f"Запущен просмотр контента @{target_user}",
+                "username": target_user
+            }, ensure_ascii=False).encode("utf-8"))
+            return
+
+        # Direct Video / Reel URL watch: POST /api/watch-url
+        if path == "/api/watch-url":
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length).decode("utf-8") if content_length > 0 else "{}"
+            try:
+                data = json.loads(body) if body else {}
+            except Exception:
+                data = {}
+            target_url = data.get("url", "").strip()
+            if not target_url:
+                self.send_response(HTTPStatus.BAD_REQUEST)
+                self.end_headers()
+                self.wfile.write(b'{"error": "Missing URL parameter"}')
+                return
+
+            def run_url_thread():
+                from agent.watcher import ContentWatcherAgent
+                agent = ContentWatcherAgent(db=db, auditor=auditor)
+                db.add_log("WATCH_URL", f"Manual inspect started for {target_url}")
+                agent.watch_single_reel(target_url, analyze_hook=True)
+
+            t = threading.Thread(target=run_url_thread, daemon=True)
+            t.start()
+
+            self.send_response(HTTPStatus.ACCEPTED)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                "status": "processing",
+                "message": f"Запущен детальный просмотр видео: {target_url}"
+            }, ensure_ascii=False).encode("utf-8"))
+            return
+
         # Add profile
         if path == "/api/profiles":
             content_length = int(self.headers.get("Content-Length", 0))
@@ -258,6 +352,7 @@ def run_server(port: int = DEFAULT_PORT):
         print(f"  Watched Reels API:   http://localhost:{port}/api/reels")
         print(f"  Target Profiles API: http://localhost:{port}/api/profiles (GET, POST, DELETE)")
         print(f"  Profile Audit API:   http://localhost:{port}/api/profiles/<user>/audit")
+        print(f"  Scan Trigger API:    http://localhost:{port}/api/scan (POST)")
         print(f"  Agent Logs API:      http://localhost:{port}/api/logs")
         print(f"  Thumbnails route:    http://localhost:{port}/thumbnails/")
         print(f"  Press Ctrl+C to stop dev server")

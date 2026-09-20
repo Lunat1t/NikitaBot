@@ -135,7 +135,7 @@ class ContentWatcherAgent:
                 print(f"      🎙️ Извлечение звука и транскрипция речи (faster-whisper)...")
                 wav_path = extract_audio(video_path)
                 if wav_path:
-                    trans_res = self.transcriber.transcribe(wav_path)
+                    trans_res = self.transcriber.transcribe(wav_path, hint_text=reel.caption)
                     transcript_text = trans_res.get("text", "")
                     if transcript_text:
                         preview_tx = (transcript_text[:70] + "...") if len(transcript_text) > 70 else transcript_text
@@ -158,8 +158,6 @@ class ContentWatcherAgent:
                     print(f"         🎯 Оценка хука: {score}/10 | Виральность: {virality}% | Тип: {htype}")
                     print(f"         💡 Саммари: {analysis_data.get('summary')}")
 
-                # 4. Cleanup heavy MP4 to save disk space
-                cleanup_video(video_path)
             elif analyze_hook:
                 # Metadata-only hook evaluation when video stream is not downloaded
                 analysis_data = self.analyzer.analyze(
@@ -171,10 +169,18 @@ class ContentWatcherAgent:
                     comments=reel.comments_count
                 )
 
+            # Ensure thumbnail and video URLs are set for dashboard
+            reel_dict = reel.to_dict()
+            if hook_frames and not reel_dict.get("thumbnail_url"):
+                reel_dict["thumbnail_url"] = f"/thumbnails/{hook_frames[0]}"
+            valid_video_path = video_path if isinstance(video_path, str) else None
+            if valid_video_path and not reel_dict.get("video_url"):
+                reel_dict["video_url"] = f"/videos/{os.path.basename(valid_video_path)}"
+
             # Save into SQLite DB
             self.db.save_watched_reel(
-                reel_data=reel.to_dict(),
-                video_local_path=None,
+                reel_data=reel_dict,
+                video_local_path=valid_video_path,
                 transcript=transcript_text,
                 analysis_data=analysis_data,
                 hook_frames=hook_frames
@@ -280,9 +286,6 @@ class ContentWatcherAgent:
                 print(f"   🎯 Хук: {analysis_data.get('hook_score')}/10 | Виральность: {analysis_data.get('virality_score')}%")
                 print(f"   💡 Саммари: {analysis_data.get('summary')}")
 
-            # 4. Cleanup MP4
-            cleanup_video(video_path)
-
         # Save to DB
         reel_dict = {
             "shortcode": shortcode,
@@ -294,11 +297,14 @@ class ContentWatcherAgent:
             "views_count": 0,
             "likes_count": 0,
             "comments_count": 0,
-            "tags": ["reel", "direct"]
+            "tags": ["reel", "direct"],
+            "thumbnail_url": f"/thumbnails/{hook_frames[0]}" if hook_frames else None,
+            "video_url": f"/videos/{os.path.basename(video_path)}" if isinstance(video_path, str) else None
         }
+        valid_vp = video_path if isinstance(video_path, str) else None
         self.db.save_watched_reel(
             reel_data=reel_dict,
-            video_local_path=None,
+            video_local_path=valid_vp,
             transcript=transcript_text,
             analysis_data=analysis_data,
             hook_frames=hook_frames
