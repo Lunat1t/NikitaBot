@@ -1,7 +1,9 @@
-"""Autonomous Content Watcher Agent for NikitaBot.
+"""Autonomous Content Watcher & Hook Analyzer Agent for NikitaBot.
 
 Autonomously monitors target Instagram profiles, discovers new Reels and posts,
-inspects metadata/duration/metrics, and records them in the local database.
+downloads media stream, extracts 3 hook keyframes (0.5s, 1.5s, 3.0s),
+transcribes speech via faster-whisper, performs multimodal virality analysis
+via Gemini Flash, cleans up heavy MP4 videos, and records everything in SQLite.
 """
 import json
 import logging
@@ -13,6 +15,9 @@ from typing import Any, Dict, List, Optional
 from scraper.instagram import InstagramScraper
 from scraper.models import ScrapedReel
 from storage.database import NikitaDatabase
+from processor.media import extract_audio, extract_hook_frames, cleanup_video
+from processor.transcriber import WhisperTranscriber
+from ai_analyzer.hook_analyzer import HookAnalyzer
 
 logging.basicConfig(
     level=logging.INFO,
@@ -23,14 +28,28 @@ logger = logging.getLogger("nikitabot.watcher")
 
 
 class ContentWatcherAgent:
-    """Autonomous agent that watches and logs profile Reels."""
+    """Autonomous agent that watches, transcribes, and analyzes profile Reels."""
 
-    def __init__(self, db: Optional[NikitaDatabase] = None, scraper: Optional[InstagramScraper] = None):
+    def __init__(
+        self,
+        db: Optional[NikitaDatabase] = None,
+        scraper: Optional[InstagramScraper] = None,
+        transcriber: Optional[WhisperTranscriber] = None,
+        analyzer: Optional[HookAnalyzer] = None
+    ):
         self.db = db or NikitaDatabase()
         self.scraper = scraper or InstagramScraper()
+        self.transcriber = transcriber or WhisperTranscriber(model_size="base")
+        self.analyzer = analyzer or HookAnalyzer()
 
-    def watch_profile(self, username: str, limit: int = 10, download_media: bool = False) -> Dict[str, Any]:
-        """Inspect a single profile, watch its reels, and record new content."""
+    def watch_profile(
+        self,
+        username: str,
+        limit: int = 10,
+        download_media: bool = True,
+        analyze_hook: bool = True
+    ) -> Dict[str, Any]:
+        """Inspect a single profile, watch its reels, transcribe, and evaluate hooks."""
         clean_user = username.strip().replace("@", "")
         print(f"\n=======================================================")
         print(f"👀 [NikitaBot] Начинаю просмотр профиля: @{clean_user}")
@@ -58,6 +77,9 @@ class ContentWatcherAgent:
 
         print(f"📥 Найдено {len(result.reels)} постов/Reels в профиле @{clean_user}.\n")
 
+        thumbnails_dir = os.path.join("data", "thumbnails")
+        os.makedirs(thumbnails_dir, exist_ok=True)
+
         for idx, reel in enumerate(result.reels, 1):
             shortcode = reel.shortcode
             is_already_watched = self.db.is_reel_watched(shortcode)
@@ -80,18 +102,80 @@ class ContentWatcherAgent:
             if reel.tags:
                 print(f"      🏷️ Теги: {', '.join(['#' + t for t in reel.tags[:5]])}")
 
-            # Optional media download
+            # Media processing & Hook Analysis
             video_path = None
-            if download_media:
-                print(f"      📥 Загружаю MP4 поток для локального архива...")
+            hook_frames = []
+            transcript_text = ""
+            analysis_data = {}
+
+            if download_media or analyze_hook:
+                print(f"      📥 Загружаю MP4 видеоряд для анализа хука...")
                 try:
                     dl_res = self.scraper.download_reel_media(reel.url, f"{clean_user}_{shortcode}")
                     video_path = dl_res.get("video_path")
                 except Exception as e:
-                    print(f"      ⚠️ Ошибка загрузки видео: {e}")
+                    print(f"      ⚠️ Загрузка видео не удалась ({e}), переход к мета-анализу.")
 
-            # Save into DB
-            self.db.save_watched_reel(reel.to_dict(), video_local_path=video_path)
+            if isinstance(video_path, str) and os.path.exists(video_path):
+                # 1. Extract 3 hook keyframes (0.5s, 1.5s, 3.0s)
+                print(f"      🎞️ Захват 3 кадров хука первых секунд (ffmpeg)...")
+                raw_frame_paths = extract_hook_frames(
+                    video_path,
+                    output_dir=thumbnails_dir,
+                    timestamps=(0.5, 1.5, 3.0),
+                    shortcode=shortcode
+                )
+                # Store relative paths for Web UI
+                hook_frames = [os.path.basename(p) for p in raw_frame_paths]
+
+                # 2. Extract audio and transcribe with Whisper
+                print(f"      🎙️ Извлечение звука и транскрипция речи (faster-whisper)...")
+                wav_path = extract_audio(video_path)
+                if wav_path:
+                    trans_res = self.transcriber.transcribe(wav_path)
+                    transcript_text = trans_res.get("text", "")
+                    if transcript_text:
+                        preview_tx = (transcript_text[:70] + "...") if len(transcript_text) > 70 else transcript_text
+                        print(f"         💬 Текст речи: \"{preview_tx}\"")
+
+                # 3. Multimodal Hook & Virality Analysis via Gemini Flash
+                if analyze_hook:
+                    print(f"      🧠 Мультимодальный анализ хука (Gemini Flash)...")
+                    analysis_data = self.analyzer.analyze(
+                        frame_paths=raw_frame_paths,
+                        transcript=transcript_text,
+                        caption=reel.caption,
+                        tags=reel.tags,
+                        likes=reel.likes_count,
+                        comments=reel.comments_count
+                    )
+                    score = analysis_data.get("hook_score", 0.0)
+                    virality = analysis_data.get("virality_score", 0)
+                    htype = analysis_data.get("hook_type", "N/A")
+                    print(f"         🎯 Оценка хука: {score}/10 | Виральность: {virality}% | Тип: {htype}")
+                    print(f"         💡 Саммари: {analysis_data.get('summary')}")
+
+                # 4. Cleanup heavy MP4 to save disk space
+                cleanup_video(video_path)
+            elif analyze_hook:
+                # Metadata-only hook evaluation when video stream is not downloaded
+                analysis_data = self.analyzer.analyze(
+                    frame_paths=[],
+                    transcript=transcript_text,
+                    caption=reel.caption,
+                    tags=reel.tags,
+                    likes=reel.likes_count,
+                    comments=reel.comments_count
+                )
+
+            # Save into SQLite DB
+            self.db.save_watched_reel(
+                reel_data=reel.to_dict(),
+                video_local_path=None,
+                transcript=transcript_text,
+                analysis_data=analysis_data,
+                hook_frames=hook_frames
+            )
             print(f"      ✅ Зафиксировано в базе NikitaBot (ID: {shortcode})\n")
 
         print(f"📊 [Итог просмотра @{clean_user}]: {new_watched_count} новых Reels просмотрено, {previously_seen_count} пропущено (ранее сохранены).")
@@ -109,7 +193,12 @@ class ContentWatcherAgent:
             "total_found": len(result.reels)
         }
 
-    def watch_all_targets(self, targets_config_path: str = "config/targets.json", download_media: bool = False) -> List[Dict[str, Any]]:
+    def watch_all_targets(
+        self,
+        targets_config_path: str = "config/targets.json",
+        download_media: bool = True,
+        analyze_hook: bool = True
+    ) -> List[Dict[str, Any]]:
         """Watch all profiles configured in targets.json."""
         if not os.path.exists(targets_config_path):
             print(f"Конфигурационный файл {targets_config_path} не найден.")
@@ -122,13 +211,21 @@ class ContentWatcherAgent:
         for target in targets:
             username = target.get("username")
             if username:
-                summary = self.watch_profile(username, download_media=download_media)
+                summary = self.watch_profile(
+                    username,
+                    download_media=download_media,
+                    analyze_hook=analyze_hook
+                )
                 summaries.append(summary)
                 time.sleep(2)  # polite pause between target profiles
 
         return summaries
 
-    def start_continuous_loop(self, interval_minutes: int = 15, targets_config_path: str = "config/targets.json") -> None:
+    def start_continuous_loop(
+        self,
+        interval_minutes: int = 15,
+        targets_config_path: str = "config/targets.json"
+    ) -> None:
         """Run continuous autonomous monitoring loop."""
         print(f"\n🚀 Запуск автономного фонового цикла NikitaBot.")
         print(f"⏱️ Интервал между циклами: {interval_minutes} мин. Нажмите Ctrl+C для остановки.\n")

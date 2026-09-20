@@ -13,7 +13,9 @@ def main():
     parser.add_argument("--all", action="store_true", help="Watch all profiles from config/targets.json")
     parser.add_argument("--limit", type=int, default=10, help="Max posts/reels to scan per profile (default: 10)")
     parser.add_argument("--all-reels", action="store_true", help="Watch ALL available reels of the profile without limit")
-    parser.add_argument("--download", action="store_true", help="Download MP4 video media locally")
+    parser.add_argument("--download", action="store_true", default=True, help="Download video stream for analysis (default: True)")
+    parser.add_argument("--no-download", dest="download", action="store_false", help="Skip media download (metadata only)")
+    parser.add_argument("--no-analyze", action="store_true", help="Skip multimodal hook analysis")
     parser.add_argument("--loop", action="store_true", help="Run continuous background monitoring loop")
     parser.add_argument("--interval", type=int, default=15, help="Loop interval in minutes (default: 15)")
     parser.add_argument("--list", action="store_true", help="List recent watched reels from database")
@@ -29,10 +31,16 @@ def main():
         print(f"\n📚 Всего просмотрено и сохранено: {len(reels)} Reels в базе NikitaBot:")
         print("---------------------------------------------------------------------")
         for r in reels:
+            hook_str = f"{r.get('hook_score', 0)}/10" if r.get('hook_score') else "N/A"
+            virality_str = f"{r.get('virality_score', 0)}%" if r.get('virality_score') else "N/A"
             print(f"• @{r['username']} [{r['shortcode']}]: {r['url']}")
-            print(f"  Длительность: {r['duration_seconds']}s | Лайки: {r['likes_count']} | Просмотры: {r['views_count']}")
-            print(f"  Дата просмотра: {r['watched_at']}")
-            print(f"  Описание: {r['caption'][:70]}...\n")
+            print(f"  🎯 Хук: {hook_str} | 🔥 Виральность: {virality_str} | 🏷️ Тип: {r.get('hook_type') or 'N/A'}")
+            print(f"  ⏱️ Длительность: {r.get('duration_seconds')}s | ❤️ Лайки: {r.get('likes_count')} | 👁️ Просмотры: {r.get('views_count')}")
+            if r.get('transcript'):
+                print(f"  🎙️ Whisper: \"{r['transcript'][:80]}...\"")
+            if r.get('hook_summary'):
+                print(f"  💡 Инсайт: {r['hook_summary']}")
+            print(f"  📅 Дата: {r['watched_at']}\n")
         return
 
     if args.loop:
@@ -40,11 +48,16 @@ def main():
         return
 
     if args.all:
-        agent.watch_all_targets(download_media=args.download)
+        agent.watch_all_targets(download_media=args.download, analyze_hook=not args.no_analyze)
         return
 
     if args.username:
-        agent.watch_profile(args.username, limit=effective_limit, download_media=args.download)
+        agent.watch_profile(
+            args.username,
+            limit=effective_limit,
+            download_media=args.download,
+            analyze_hook=not args.no_analyze
+        )
         return
 
     parser.print_help()

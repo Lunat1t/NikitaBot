@@ -2,7 +2,7 @@
 (function () {
   "use strict";
 
-  // Mock initial dataset representing scraped and AI-analyzed Instagram Reels
+  // Mock initial dataset as baseline
   const initialReels = [
     {
       id: "reel-101",
@@ -19,6 +19,10 @@
       sentimentLabel: "94% Positive",
       tags: ["AI", "Tech", "Innovation", "Future"],
       viralHook: "«Is this the future?» — Compelling visual hook, strong pacing, clear voiceover. Highly engaging start in first 2.5s.",
+      hookScore: 9.2,
+      viralityScore: 94,
+      hookType: "Curiosity Gap",
+      hookFrames: [],
       transcript: "This new open-source AI agent just automated an entire social media workflow. Watch what happens when I give it a single profile handle. It scrapes all recent reels, transcribes the voice with Whisper, runs multimodal frame detection, and sends ready-to-use executive summaries to Telegram in under 30 seconds. The code is completely free and running locally.",
       takeaways: [
         "Мощный эмоциональный хук с демонстрацией экрана",
@@ -41,55 +45,15 @@
       sentimentLabel: "88% Positive",
       tags: ["Startups", "Growth", "Founders"],
       viralHook: "«Stop building products nobody wants.» — Aggressive pattern interrupt, bold text overlay, energetic delivery.",
+      hookScore: 8.7,
+      viralityScore: 88,
+      hookType: "Pattern Interrupt",
+      hookFrames: [],
       transcript: "Here are 3 brutal reasons your SaaS idea will fail before launch. Number one: you are solving a minor inconvenience instead of an urgent bleeding problem. Number two: zero distribution strategy. You built in a cave and expect virality. Number three: pricing is too low. If you charge 5 dollars, you need ten thousand customers. Charge 100 dollars and solve real pain.",
       takeaways: [
         "Паттерн-интеррапт на 1-й секунде (резкая смена кадра)",
         "Списочная структура (3 пункта удерживают внимание)",
         "Высокий репост-рейт из-за практической ценности"
-      ]
-    },
-    {
-      id: "reel-103",
-      author: "@ViralGamer",
-      authorName: "Viral Gamer",
-      timestamp: "7 часов назад",
-      category: "Gaming",
-      duration: "0:29",
-      views: "3.1M",
-      likes: "320K",
-      comments: "4.8K",
-      shares: "88K",
-      sentimentScore: 91,
-      sentimentLabel: "91% Positive",
-      tags: ["Gaming", "Memes", "UnrealEngine5"],
-      viralHook: "«Nobody noticed this secret detail...» — Mystery hook, zoom-in on hidden easter egg with suspense sound effect.",
-      transcript: "In the new Unreal Engine 5 tech demo, if you zoom into the background character window at frame 412, you can actually see the reflection of the original 1998 protagonist. Only 0.1 percent of players caught this.",
-      takeaways: [
-        "Крючок любопытства (Curiosity gap)",
-        "Интерактивный элемент: зрители пересматривают ролик на паузе",
-        "Вирусный звуковой тренд на фоне"
-      ]
-    },
-    {
-      id: "reel-104",
-      author: "@TheTechDaily",
-      authorName: "The Tech Daily",
-      timestamp: "12 часов назад",
-      category: "Tech",
-      duration: "0:45",
-      views: "1.7M",
-      likes: "135K",
-      comments: "950",
-      shares: "28K",
-      sentimentScore: 96,
-      sentimentLabel: "96% Positive",
-      tags: ["Hardware", "Robotics", "Gadgets"],
-      viralHook: "«This robot just learned to cook.» — Direct visual proof in the first frame, no preamble or fluff.",
-      transcript: "Watch this humanoid robot flip a pancake on its very first attempt using end-to-end vision neural networks. No hardcoded trajectory, just pure reinforcement learning from 20 hours of human video demonstrations.",
-      takeaways: [
-        "Немедленное доказательство (Immediate proof hook)",
-        "Кинематографичное освещение и макросъемка",
-        "Высокое вовлечение в комментариях"
       ]
     }
   ];
@@ -137,9 +101,83 @@
   async function init() {
     await loadProfiles();
     renderProfiles();
+    await loadReelsFromApi();
     renderReels();
-    renderInitialLogs();
+    await loadLogsFromApi();
     attachEvents();
+
+    // Periodic poll every 8 seconds for new reels and logs
+    setInterval(async () => {
+      await loadReelsFromApi();
+      renderReels();
+      await loadLogsFromApi();
+    }, 8000);
+  }
+
+  function mapDbReel(dbR) {
+    const durationSec = dbR.duration_seconds || 0;
+    const durStr = durationSec ? `${Math.floor(durationSec / 60)}:${String(Math.floor(durationSec % 60)).padStart(2, "0")}` : "0:30";
+    const vScore = dbR.virality_score || 75;
+
+    return {
+      id: dbR.shortcode,
+      author: `@${dbR.username}`,
+      authorName: dbR.username,
+      timestamp: dbR.watched_at ? dbR.watched_at.slice(11, 16) + " UTC" : "Недавно",
+      category: "Tech",
+      duration: durStr,
+      views: dbR.views_count ? `${(dbR.views_count / 1000).toFixed(1)}K` : "—",
+      likes: dbR.likes_count ? `${(dbR.likes_count / 1000).toFixed(1)}K` : "0",
+      comments: String(dbR.comments_count || 0),
+      shares: "—",
+      sentimentScore: vScore,
+      sentimentLabel: `${vScore}% Virality`,
+      tags: dbR.tags || [],
+      viralHook: dbR.hook_summary || dbR.caption || "Хук проанализирован",
+      hookScore: dbR.hook_score || 0.0,
+      viralityScore: vScore,
+      hookType: dbR.hook_type || "Dynamic Hook",
+      transcript: dbR.transcript || "",
+      hookFrames: dbR.hook_frames || [],
+      takeaways: [
+        dbR.hook_dynamics || "Анализ смены планов в первые 3 секунды",
+        dbR.hook_type ? `Тип хука: ${dbR.hook_type}` : "Оптимальная подача",
+        dbR.hook_summary || "Рекомендации ИИ зафиксированы"
+      ]
+    };
+  }
+
+  async function loadReelsFromApi() {
+    try {
+      const res = await fetch("/api/reels");
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.length > 0) {
+          const mapped = data.map(mapDbReel);
+          reels = mapped;
+        }
+      }
+    } catch (e) {
+      // Keep existing reels on error
+    }
+  }
+
+  async function loadLogsFromApi() {
+    try {
+      const res = await fetch("/api/logs");
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.length > 0) {
+          activityLogStream.innerHTML = "";
+          data.slice(0, 8).forEach((item) => {
+            const time = item.timestamp ? item.timestamp.slice(11, 16) : "--:--";
+            addLogEntry(time, item.message);
+          });
+        }
+      }
+    } catch (e) {
+      // Ignore
+    }
   }
 
   async function loadProfiles() {
@@ -187,9 +225,9 @@
     }
 
     if (currentFilter === "viral") {
-      list = list.filter((r) => r.sentimentScore >= 92);
+      list = list.filter((r) => (r.viralityScore || r.sentimentScore) >= 85);
     } else if (currentFilter === "positive") {
-      list = list.filter((r) => r.sentimentScore >= 90);
+      list = list.filter((r) => (r.hookScore || 0) >= 7.0);
     }
 
     if (searchQuery) {
@@ -197,6 +235,7 @@
         return (
           r.author.toLowerCase().includes(searchQuery) ||
           r.viralHook.toLowerCase().includes(searchQuery) ||
+          (r.transcript && r.transcript.toLowerCase().includes(searchQuery)) ||
           r.tags.some((t) => t.toLowerCase().includes(searchQuery))
         );
       });
@@ -216,6 +255,42 @@
 
       const tagsHtml = reel.tags.map((t) => `<span class="ai-tag">#${escapeHtml(t)}</span>`).join("");
 
+      // 3-frame hook strip if available
+      let framesStripHtml = "";
+      if (reel.hookFrames && reel.hookFrames.length > 0) {
+        const timestamps = ["0.5s", "1.5s", "3.0s"];
+        framesStripHtml = `
+          <div class="hook-frames-strip">
+            ${reel.hookFrames.map((f, i) => `
+              <div class="hook-frame-item">
+                <img src="/thumbnails/${encodeURIComponent(f)}" alt="Hook Frame ${i+1}" loading="lazy" onerror="this.style.display='none'">
+                <span class="hook-frame-tag">${timestamps[i] || (i+1) + "s"}</span>
+              </div>
+            `).join("")}
+          </div>
+        `;
+      } else {
+        framesStripHtml = `
+          <div class="thumbnail-box">
+            <div class="thumb-bg-gradient"></div>
+            <div class="play-circle">▶</div>
+            <span class="duration-tag">${reel.duration}</span>
+          </div>
+        `;
+      }
+
+      // Transcript dropdown if available
+      let transcriptHtml = "";
+      if (reel.transcript) {
+        const wordCount = reel.transcript.split(/\s+/).filter(Boolean).length;
+        transcriptHtml = `
+          <details class="transcript-details">
+            <summary>🎙️ Whisper транскрипция (${wordCount} слов)</summary>
+            <div class="transcript-details-content">${escapeHtml(reel.transcript)}</div>
+          </details>
+        `;
+      }
+
       card.innerHTML = `
         <div class="card-top-row">
           <div class="author-wrap">
@@ -225,10 +300,12 @@
           <span class="time-stamp">${escapeHtml(reel.timestamp)}</span>
         </div>
 
-        <div class="thumbnail-box">
-          <div class="thumb-bg-gradient"></div>
-          <div class="play-circle">▶</div>
-          <span class="duration-tag">${reel.duration}</span>
+        ${framesStripHtml}
+
+        <div class="hook-meta-row">
+          <span class="badge-hook-score">🎯 Hook: ${reel.hookScore ? reel.hookScore + "/10" : "8.5/10"}</span>
+          <span class="badge-virality">🔥 Virality: ${reel.viralityScore ? reel.viralityScore + "%" : "85%"}</span>
+          <span style="font-size: 10px; color: var(--cyan-accent);">${escapeHtml(reel.hookType || "Dynamic Hook")}</span>
         </div>
 
         <div class="engagement-metrics">
@@ -241,19 +318,16 @@
         <div class="ai-analysis-block">
           <div class="tag-list">${tagsHtml}</div>
           
-          <div class="sentiment-row">
-            <span style="color: var(--text-dim);">Sentiment:</span>
-            <span class="sentiment-score">😊 ${reel.sentimentLabel}</span>
-          </div>
-
           <div class="hook-analysis-box">
-            <div class="hook-title">Viral Hook Analysis</div>
+            <div class="hook-title">🎯 Gemini Multimodal Hook Analysis</div>
             <p>${escapeHtml(reel.viralHook)}</p>
           </div>
+
+          ${transcriptHtml}
         </div>
 
         <div class="card-actions">
-          <button class="btn-detail view-analysis-btn">Подробный разбор & Транскрипт</button>
+          <button class="btn-detail view-analysis-btn">Подробный разбор & Кадры</button>
           <button class="btn-telegram-share send-tg-btn" title="Отправить карточку в Telegram">✈️</button>
         </div>
       `;
@@ -265,18 +339,6 @@
     });
   }
 
-  function renderInitialLogs() {
-    const logs = [
-      { time: "14:21", text: "Scraping @TheTechDaily (3 new Reels found)" },
-      { time: "14:19", text: "Analyzing Reel ID 992810 (Sentiment: Positive)" },
-      { time: "14:15", text: "Extracted 12 Reels from @ViralGamer" },
-      { time: "14:10", text: "Database updated (42 Reels in storage)" }
-    ];
-
-    activityLogStream.innerHTML = "";
-    logs.forEach((l) => addLogEntry(l.time, l.text));
-  }
-
   function addLogEntry(time, text) {
     const row = document.createElement("div");
     row.className = "log-entry";
@@ -285,18 +347,34 @@
   }
 
   function openReelDetails(reel) {
-    modalReelTitle.textContent = `${reel.author} • Reel Analysis Deep Dive`;
+    modalReelTitle.textContent = `${reel.author} • Multimodal Hook Analysis`;
     modalDurationTag.textContent = reel.duration;
+
+    let framesPreview = "";
+    if (reel.hookFrames && reel.hookFrames.length > 0) {
+      framesPreview = `
+        <div style="display:flex; gap:6px; margin-top:10px;">
+          ${reel.hookFrames.map((f, i) => `
+            <div style="flex:1; position:relative; aspect-ratio:9/14; border-radius:6px; overflow:hidden; border:1px solid rgba(255,255,255,0.15);">
+              <img src="/thumbnails/${encodeURIComponent(f)}" style="width:100%; height:100%; object-fit:cover;" onerror="this.style.display='none'">
+              <span style="position:absolute; bottom:2px; left:2px; font-size:9px; background:rgba(0,0,0,0.8); color:#38bdf8; padding:1px 4px; border-radius:3px;">${["0.5s", "1.5s", "3.0s"][i] || ""}</span>
+            </div>
+          `).join("")}
+        </div>
+      `;
+    }
+
     modalMetricsBar.innerHTML = `
+      ${framesPreview}
       <div style="display:flex; justify-content:space-around; padding: 12px 0; font-size:12px; color:var(--text-muted); border-top:1px solid rgba(255,255,255,0.06); margin-top:10px;">
         <span>Просмотры: <b>${reel.views}</b></span>
         <span>Лайки: <b>${reel.likes}</b></span>
-        <span>Репосты: <b>${reel.shares}</b></span>
+        <span>Оценка хука: <b>${reel.hookScore ? reel.hookScore + "/10" : "8.5/10"}</b></span>
       </div>
     `;
 
     modalHookText.textContent = reel.viralHook;
-    modalTranscriptText.textContent = reel.transcript;
+    modalTranscriptText.textContent = reel.transcript || "Транскрипция речи отсутствует или обрабатывается.";
 
     modalKeyTakeaways.innerHTML = reel.takeaways.map((t) => `<li>${escapeHtml(t)}</li>`).join("");
 
@@ -339,17 +417,25 @@
     closeProfileModal.addEventListener("click", () => addProfileModal.classList.remove("active"));
     cancelProfileBtn.addEventListener("click", () => addProfileModal.classList.remove("active"));
     
-    saveProfileBtn.addEventListener("click", () => {
+    saveProfileBtn.addEventListener("click", async () => {
       const username = profileUsername.value.trim().replace(/^@/, "");
       if (!username) return;
 
       const newP = {
-        id: "p-" + Date.now(),
         username: username,
         followers: "Новый",
         status: "scanning",
         category: profileCategory.value
       };
+
+      try {
+        await fetch("/api/profiles", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(newP)
+        });
+      } catch (e) {}
+
       profiles.unshift(newP);
       renderProfiles();
       addProfileModal.classList.remove("active");
@@ -378,14 +464,14 @@
       currentTaskProgressBar.style.width = "55%";
       currentTaskProgressNum.textContent = "55%";
       currentTaskLabel.textContent = "Current Task: Extracting audio & Whisper transcription...";
-      addLogEntry(getCurrentTime(), "Downloaded media stream, running Whisper speech-to-text");
+      addLogEntry(getCurrentTime(), "Downloaded media stream, running faster-whisper speech-to-text");
     }, 1200);
 
     setTimeout(() => {
       currentTaskProgressBar.style.width = "85%";
       currentTaskProgressNum.textContent = "85%";
-      currentTaskLabel.textContent = "Current Task: Multimodal LLM hook & virality analysis...";
-      addLogEntry(getCurrentTime(), "Analyzing visual keyframes & viral hook dynamics");
+      currentTaskLabel.textContent = "Current Task: Gemini Flash multimodal hook analysis (3 frames)...";
+      addLogEntry(getCurrentTime(), "Captured 3 hook frames (0.5s, 1.5s, 3.0s) & evaluating virality");
     }, 2400);
 
     setTimeout(() => {
@@ -408,6 +494,10 @@
         sentimentLabel: "97% Viral",
         tags: ["Growth", "Bootstrapping", "Viral"],
         viralHook: "«This 1-person startup makes $40k/month.» — High-contrast caption hook, immediate MRR dashboard reveal.",
+        hookScore: 9.4,
+        viralityScore: 97,
+        hookType: "Curiosity Gap (Любопытство)",
+        hookFrames: [],
         transcript: "Here is how a solo developer built a micro-SaaS with zero funding. He picked a single niche problem, automated the entire customer acquisition pipeline using autonomous AI agents, and scaled to 40 thousand dollars in monthly recurring revenue in less than 9 months.",
         takeaways: [
           "Визуальный хук с демонстрацией реального дашборда дохода",
@@ -418,7 +508,7 @@
 
       reels.unshift(newReel);
       renderReels();
-      addLogEntry(getCurrentTime(), `Discovered new viral Reel by ${newReel.author}! Sent alert to Telegram.`);
+      addLogEntry(getCurrentTime(), `Discovered new viral Reel by ${newReel.author}! Multimodal hook: 9.4/10`);
 
       scanNowBtn.disabled = false;
       scanNowBtn.style.opacity = "1";

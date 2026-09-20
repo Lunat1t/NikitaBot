@@ -2,7 +2,8 @@
 """Local development server for NikitaBot AI Reels Agent Dashboard.
 
 Standard library only: http.server, socketserver, json, sys, os, argparse.
-Serves web UI, handles /api/health, /api/profiles, /api/reels, /api/logs.
+Serves web UI, handles /api/health, /api/profiles, /api/reels, /api/logs,
+and serves hook frame thumbnails from /thumbnails/<filename>.
 """
 import argparse
 from http import HTTPStatus
@@ -20,7 +21,11 @@ from storage.database import NikitaDatabase
 
 DEFAULT_PORT = 8080
 WEB_DIR = os.path.join(ROOT_DIR, "web")
+DATA_DIR = os.path.join(ROOT_DIR, "data")
+THUMBNAILS_DIR = os.path.join(DATA_DIR, "thumbnails")
 CONFIG_TARGETS_PATH = os.path.join(ROOT_DIR, "config", "targets.json")
+
+os.makedirs(THUMBNAILS_DIR, exist_ok=True)
 
 # Shared database instance
 db = NikitaDatabase()
@@ -45,6 +50,28 @@ class NikitaBotHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
 
+        # Serve hook thumbnails from data/thumbnails/
+        if path.startswith("/thumbnails/"):
+            filename = os.path.basename(path)
+            file_path = os.path.join(THUMBNAILS_DIR, filename)
+            if os.path.exists(file_path) and os.path.isfile(file_path):
+                self.send_response(HTTPStatus.OK)
+                if filename.endswith(".jpg") or filename.endswith(".jpeg"):
+                    self.send_header("Content-Type", "image/jpeg")
+                elif filename.endswith(".png"):
+                    self.send_header("Content-Type", "image/png")
+                else:
+                    self.send_header("Content-Type", "application/octet-stream")
+                self.send_header("Content-Length", str(os.path.getsize(file_path)))
+                self.end_headers()
+                with open(file_path, "rb") as f:
+                    self.wfile.write(f.read())
+                return
+            else:
+                self.send_response(HTTPStatus.NOT_FOUND)
+                self.end_headers()
+                return
+
         # Health check endpoint
         if path in ("/api/health", "/health"):
             self.send_response(HTTPStatus.OK)
@@ -53,12 +80,14 @@ class NikitaBotHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             response = {
                 "status": "ok",
                 "service": "nikitabot-reels-agent",
-                "version": "1.0.0",
+                "version": "1.2.0",
                 "mode": "autonomous-watcher",
                 "database": "sqlite3",
-                "scrapers": {
-                    "instagram": "ready (Instaloader + yt-dlp)",
-                    "whisper": "ready"
+                "engines": {
+                    "scraper": "Instaloader + yt-dlp",
+                    "whisper": "faster-whisper (base model, offline)",
+                    "hook_analyzer": "Google Gemini Flash (multimodal) + local heuristic",
+                    "media_processor": "FFmpeg keyframes (0.5s, 1.5s, 3.0s)"
                 }
             }
             self.wfile.write(json.dumps(response, ensure_ascii=False, indent=2).encode("utf-8"))
@@ -147,6 +176,7 @@ def run_server(port: int = DEFAULT_PORT):
         print(f"  Health check API:    http://localhost:{port}/api/health")
         print(f"  Watched Reels API:   http://localhost:{port}/api/reels")
         print(f"  Agent Logs API:      http://localhost:{port}/api/logs")
+        print(f"  Thumbnails route:    http://localhost:{port}/thumbnails/")
         print(f"  Press Ctrl+C to stop dev server")
         print(f"============================================================")
         try:
