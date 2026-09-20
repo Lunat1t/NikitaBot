@@ -58,25 +58,28 @@ class ApifyInstagramScraper:
         """Returns True if an Apify token is provided and client is initialized."""
         return bool(self.token and self.client)
 
-    def scrape_profile_reels(self, username: str, limit: int = 10) -> ScraperResult:
+    def scrape_profile_reels(self, username: str, limit: Optional[int] = None) -> ScraperResult:
         """Runs the apify/instagram-scraper actor for a given Instagram username.
         
         Fetches authentic Reels, CDN video URLs, original thumbnails, and engagement stats.
+        If limit is None or <= 0, scrapes ALL available reels without restriction.
         """
         clean_user = username.replace("@", "").strip().split("?")[0].rstrip("/")
         if not self.is_configured():
             logger.info("Apify token not set. Running in Apify simulation mode for @%s.", clean_user)
-            return self._fallback_simulation(clean_user, limit)
+            return self._fallback_simulation(clean_user, limit or 10)
 
         profile_url = f"https://www.instagram.com/{clean_user}/reels/"
-        logger.info("Calling Apify actor '%s' for %s (limit=%d)...", self.ACTOR_ID, profile_url, limit)
+        limit_desc = f"limit={limit}" if (limit and limit > 0) else "unlimited (ALL reels)"
+        logger.info("Calling Apify actor '%s' for %s (%s)...", self.ACTOR_ID, profile_url, limit_desc)
 
         run_input = {
             "directUrls": [profile_url],
             "resultsType": "reels",
-            "resultsLimit": limit,
             "searchType": "user"
         }
+        if limit and limit > 0:
+            run_input["resultsLimit"] = limit
 
         try:
             run = self.client.actor(self.ACTOR_ID).call(run_input=run_input)
@@ -141,11 +144,12 @@ class ApifyInstagramScraper:
                     source="apify"
                 )
 
+            effective_reels = reels[:limit] if (limit and limit > 0) else reels
             return ScraperResult(
                 status="success",
                 target_username=clean_user,
-                reels=reels[:limit],
-                count=len(reels[:limit]),
+                reels=effective_reels,
+                count=len(effective_reels),
                 source="apify"
             )
 

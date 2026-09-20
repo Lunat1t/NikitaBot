@@ -188,14 +188,14 @@ class InstagramScraper:
             ))
         return reels
 
-    def fetch_profile_reels(self, username: str, limit: Optional[int] = 10) -> ScraperResult:
+    def fetch_profile_reels(self, username: str, limit: Optional[int] = None) -> ScraperResult:
         """Fetch recent reels and posts from a public profile. If limit is None or 0, fetches all available."""
         clean_user = extract_username(username)
 
         # 1. Primary Profile Scraper: Apify Instagram Scraper actor (apify/instagram-scraper)
         if self.apify_scraper.is_configured():
-            logger.info("Using Apify Instagram Scraper actor for @%s (limit=%s)", clean_user, limit)
-            target_limit = limit if (limit and limit > 0) else 10
+            target_limit = limit if (limit and limit > 0) else None
+            logger.info("Using Apify Instagram Scraper actor for @%s (limit=%s)", clean_user, target_limit or "ALL")
             apify_res = self.apify_scraper.scrape_profile_reels(clean_user, limit=target_limit)
             if apify_res.status == "success" and apify_res.reels and getattr(apify_res, "source", "") != "apify_simulation":
                 return apify_res
@@ -203,8 +203,8 @@ class InstagramScraper:
 
         # 2. Secondary: Bright Data Dataset Scraper API
         if self.brightdata_scraper.is_configured():
-            logger.info("Using Bright Data Dataset API for @%s (limit=%s)", clean_user, limit)
-            target_limit = limit if (limit and limit > 0) else 10
+            target_limit = limit if (limit and limit > 0) else None
+            logger.info("Using Bright Data Dataset API for @%s (limit=%s)", clean_user, target_limit or "ALL")
             bd_res = self.brightdata_scraper.scrape_profile_reels(clean_user, limit=target_limit)
             if bd_res.status == "success" and bd_res.reels and getattr(bd_res, "source", "") != "brightdata_simulation":
                 return bd_res

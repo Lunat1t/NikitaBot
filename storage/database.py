@@ -281,18 +281,30 @@ class NikitaDatabase:
                 "avg_virality": int(row["avg_virality"])
             }
 
-    def get_watched_reels(self, limit: int = 50, username: Optional[str] = None) -> List[Dict[str, Any]]:
-        """Retrieve recent watched reels ordered by watched_at desc, optionally filtered by username."""
+    def get_watched_reels(self, limit: Optional[int] = None, username: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Retrieve recent watched reels ordered by watched_at desc, optionally filtered by username.
+        If limit is None or <= 0, retrieves ALL reels without restriction.
+        """
         with self._get_connection() as conn:
             if username:
                 clean_user = username.strip().replace("@", "")
-                rows = conn.execute("""
-                    SELECT * FROM watched_reels WHERE username = ? ORDER BY watched_at DESC LIMIT ?
-                """, (clean_user, limit)).fetchall()
+                if limit and limit > 0:
+                    rows = conn.execute("""
+                        SELECT * FROM watched_reels WHERE username = ? ORDER BY watched_at DESC LIMIT ?
+                    """, (clean_user, limit)).fetchall()
+                else:
+                    rows = conn.execute("""
+                        SELECT * FROM watched_reels WHERE username = ? ORDER BY watched_at DESC
+                    """, (clean_user,)).fetchall()
             else:
-                rows = conn.execute("""
-                    SELECT * FROM watched_reels ORDER BY watched_at DESC LIMIT ?
-                """, (limit,)).fetchall()
+                if limit and limit > 0:
+                    rows = conn.execute("""
+                        SELECT * FROM watched_reels ORDER BY watched_at DESC LIMIT ?
+                    """, (limit,)).fetchall()
+                else:
+                    rows = conn.execute("""
+                        SELECT * FROM watched_reels ORDER BY watched_at DESC
+                    """).fetchall()
 
             result = []
             for r in rows:

@@ -270,7 +270,9 @@ class NikitaBotHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
             filter_user = query.get("username", [None])[0]
-            reels = db.get_watched_reels(limit=50, username=filter_user)
+            limit_param = query.get("limit", [None])[0]
+            req_limit = int(limit_param) if (limit_param and limit_param.isdigit()) else None
+            reels = db.get_watched_reels(limit=req_limit, username=filter_user)
             self.wfile.write(json.dumps(reels, ensure_ascii=False).encode("utf-8"))
             return
 

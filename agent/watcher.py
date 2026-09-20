@@ -50,7 +50,7 @@ class ContentWatcherAgent:
     def watch_profile(
         self,
         username: str,
-        limit: int = 10,
+        limit: Optional[int] = None,
         download_media: bool = True,
         analyze_hook: bool = True
     ) -> Dict[str, Any]:
@@ -62,7 +62,7 @@ class ContentWatcherAgent:
 
         self.db.add_log("WATCH_STARTED", f"Started watching @{clean_user}", {"username": clean_user})
 
-        # Fetch reels from scraper
+        # Fetch reels from scraper (limit=None for all available reels)
         result = self.scraper.fetch_profile_reels(clean_user, limit=limit)
 
         if result.status != "success":
@@ -97,7 +97,7 @@ class ContentWatcherAgent:
 
         total_to_process = len(reels_to_process)
         if total_to_process > 0:
-            max_workers = min(5, total_to_process)
+            max_workers = min(8, total_to_process)
             print(f"⚡ [Fast Batch Scanning] Запуск одновременной обработки {total_to_process} новых Reels (потоков: {max_workers})...\n")
             self.db.add_log(
                 "BATCH_SCAN_STARTED",
