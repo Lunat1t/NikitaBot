@@ -5,10 +5,12 @@ downloads media stream, extracts 3 hook keyframes (0.5s, 1.5s, 3.0s),
 transcribes speech via faster-whisper, performs multimodal virality analysis
 via Gemini Flash, cleans up heavy MP4 videos, and records everything in SQLite.
 """
+import concurrent.futures
 import json
 import logging
 import os
 from pathlib import Path
+import threading
 import time
 from typing import Any, Dict, List, Optional
 
@@ -83,113 +85,48 @@ class ContentWatcherAgent:
         thumbnails_dir = os.path.join("data", "thumbnails")
         os.makedirs(thumbnails_dir, exist_ok=True)
 
+        # Filter out already watched reels
+        reels_to_process = []
         for idx, reel in enumerate(result.reels, 1):
             shortcode = reel.shortcode
-            is_already_watched = self.db.is_reel_watched(shortcode)
-
-            if is_already_watched:
+            if self.db.is_reel_watched(shortcode):
                 previously_seen_count += 1
                 print(f"  [{idx}/{len(result.reels)}] ⏩ [Уже просмотрен] Reel {shortcode}")
-                continue
+            else:
+                reels_to_process.append((idx, reel))
 
-            # New Reel encountered!
-            new_watched_count += 1
-            duration_str = f"{int(reel.duration_seconds)} сек" if reel.duration_seconds else "N/A"
-            views_str = f"{reel.views_count:,}" if reel.views_count else "N/A"
-            likes_str = f"{reel.likes_count:,}" if reel.likes_count else "0"
-            caption_preview = (reel.caption[:80] + "...") if len(reel.caption) > 80 else (reel.caption or "Без описания")
-
-            print(f"  [{idx}/{len(result.reels)}] 🎬 [НОВЫЙ REEL]: {reel.url}")
-            print(f"      ⏱️ Длительность: {duration_str} | 👁️ Просмотры: {views_str} | ❤️ Лайки: {likes_str}")
-            print(f"      📝 Описание: {caption_preview}")
-            if reel.tags:
-                print(f"      🏷️ Теги: {', '.join(['#' + t for t in reel.tags[:5]])}")
-
-            # Media processing & Hook Analysis
-            video_path = None
-            hook_frames = []
-            transcript_text = ""
-            analysis_data = {}
-
-            if download_media or analyze_hook:
-                print(f"      📥 Загружаю MP4 видеоряд для анализа хука...")
-                try:
-                    dl_res = self.scraper.download_reel_media(
-                        reel.url,
-                        f"{clean_user}_{shortcode}",
-                        direct_video_url=reel.video_url
-                    )
-                    video_path = dl_res.get("video_path")
-                except Exception as e:
-                    print(f"      ⚠️ Загрузка видео не удалась ({e}), переход к мета-анализу.")
-
-            if isinstance(video_path, str) and os.path.exists(video_path):
-                # 1. Extract 3 hook keyframes (0.5s, 1.5s, 3.0s)
-                print(f"      🎞️ Захват 3 кадров хука первых секунд (ffmpeg)...")
-                raw_frame_paths = extract_hook_frames(
-                    video_path,
-                    output_dir=thumbnails_dir,
-                    timestamps=(0.5, 1.5, 3.0),
-                    shortcode=shortcode
-                )
-                # Store relative paths for Web UI
-                hook_frames = [os.path.basename(p) for p in raw_frame_paths]
-
-                # 2. Extract audio and transcribe with Whisper
-                print(f"      🎙️ Извлечение звука и транскрипция речи (faster-whisper)...")
-                wav_path = extract_audio(video_path)
-                if wav_path:
-                    trans_res = self.transcriber.transcribe(wav_path, hint_text=reel.caption)
-                    transcript_text = trans_res.get("text", "")
-                    if transcript_text:
-                        preview_tx = (transcript_text[:70] + "...") if len(transcript_text) > 70 else transcript_text
-                        print(f"         💬 Текст речи: \"{preview_tx}\"")
-
-                # 3. Multimodal Hook & Virality Analysis via Gemini Flash
-                if analyze_hook:
-                    print(f"      🧠 Мультимодальный анализ хука (Gemini Flash)...")
-                    analysis_data = self.analyzer.analyze(
-                        frame_paths=raw_frame_paths,
-                        transcript=transcript_text,
-                        caption=reel.caption,
-                        tags=reel.tags,
-                        likes=reel.likes_count,
-                        comments=reel.comments_count
-                    )
-                    score = analysis_data.get("hook_score", 0.0)
-                    virality = analysis_data.get("virality_score", 0)
-                    htype = analysis_data.get("hook_type", "N/A")
-                    print(f"         🎯 Оценка хука: {score}/10 | Виральность: {virality}% | Тип: {htype}")
-                    print(f"         💡 Саммари: {analysis_data.get('summary')}")
-
-            elif analyze_hook:
-                # Metadata-only hook evaluation when video stream is not downloaded
-                analysis_data = self.analyzer.analyze(
-                    frame_paths=[],
-                    transcript=transcript_text,
-                    caption=reel.caption,
-                    tags=reel.tags,
-                    likes=reel.likes_count,
-                    comments=reel.comments_count
-                )
-
-            # Ensure thumbnail and video URLs are set for dashboard
-            reel_dict = reel.to_dict()
-            if hook_frames and not reel_dict.get("thumbnail_url"):
-                reel_dict["thumbnail_url"] = f"/thumbnails/{hook_frames[0]}"
-            valid_video_path = video_path if isinstance(video_path, str) and os.path.exists(video_path) else None
-            if valid_video_path:
-                reel_dict["video_url"] = f"/videos/{os.path.basename(valid_video_path)}"
-
-            # Save into SQLite DB
-            self.db.save_watched_reel(
-                reel_data=reel_dict,
-                video_local_path=valid_video_path,
-                transcript=transcript_text,
-                analysis_data=analysis_data,
-                hook_frames=hook_frames
+        total_to_process = len(reels_to_process)
+        if total_to_process > 0:
+            max_workers = min(5, total_to_process)
+            print(f"⚡ [Fast Batch Scanning] Запуск одновременной обработки {total_to_process} новых Reels (потоков: {max_workers})...\n")
+            self.db.add_log(
+                "BATCH_SCAN_STARTED",
+                f"Запущена параллельная обработка {total_to_process} рилсов для @{clean_user} ({max_workers} воркеров)",
+                {"username": clean_user, "total": total_to_process, "workers": max_workers}
             )
-            print(f"      ✅ Зафиксировано в базе NikitaBot (ID: {shortcode})\n")
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+                future_to_reel = {
+                    executor.submit(
+                        self._process_single_reel,
+                        reel,
+                        clean_user,
+                        thumbnails_dir,
+                        download_media,
+                        analyze_hook,
+                        idx,
+                        len(result.reels)
+                    ): (idx, reel) for idx, reel in reels_to_process
+                }
+
+                for future in concurrent.futures.as_completed(future_to_reel):
+                    idx, reel = future_to_reel[future]
+                    try:
+                        success = future.result()
+                        if success:
+                            new_watched_count += 1
+                    except Exception as e:
+                        logger.error("Ошибка при обработке Reel %s: %s", reel.shortcode, e)
 
         print(f"📊 [Итог просмотра @{clean_user}]: {new_watched_count} новых Reels просмотрено, {previously_seen_count} пропущено (ранее сохранены).")
         self.db.add_log(
@@ -212,6 +149,106 @@ class ContentWatcherAgent:
             "total_found": len(result.reels),
             "audit": audit_res
         }
+
+    def _process_single_reel(
+        self,
+        reel: ScrapedReel,
+        clean_user: str,
+        thumbnails_dir: str,
+        download_media: bool = True,
+        analyze_hook: bool = True,
+        idx: int = 1,
+        total: int = 1
+    ) -> bool:
+        """Process a single reel concurrently: download, hook frames, whisper, Gemini, and persist."""
+        shortcode = reel.shortcode
+        duration_str = f"{int(reel.duration_seconds)} сек" if reel.duration_seconds else "N/A"
+        views_str = f"{reel.views_count:,}" if reel.views_count else "N/A"
+        likes_str = f"{reel.likes_count:,}" if reel.likes_count else "0"
+        caption_preview = (reel.caption[:80] + "...") if len(reel.caption) > 80 else (reel.caption or "Без описания")
+
+        print(f"  [{idx}/{total}] 🎬 [ПОТОК REEL]: {reel.url}")
+        print(f"      ⏱️ {duration_str} | 👁️ {views_str} | ❤️ {likes_str} | {caption_preview}")
+
+        video_path = None
+        hook_frames = []
+        transcript_text = ""
+        analysis_data = {}
+
+        if download_media or analyze_hook:
+            try:
+                dl_res = self.scraper.download_reel_media(
+                    reel.url,
+                    f"{clean_user}_{shortcode}",
+                    direct_video_url=reel.video_url
+                )
+                video_path = dl_res.get("video_path")
+            except Exception as e:
+                logger.warning(f"Загрузка видео {shortcode} не удалась ({e}), переход к мета-анализу.")
+
+        if isinstance(video_path, str) and os.path.exists(video_path):
+            # 1. Extract 3 hook keyframes (0.5s, 1.5s, 3.0s)
+            raw_frame_paths = extract_hook_frames(
+                video_path,
+                output_dir=thumbnails_dir,
+                timestamps=(0.5, 1.5, 3.0),
+                shortcode=shortcode
+            )
+            hook_frames = [os.path.basename(p) for p in raw_frame_paths]
+
+            # 2. Extract audio and transcribe with Whisper
+            wav_path = extract_audio(video_path)
+            if wav_path:
+                trans_res = self.transcriber.transcribe(wav_path, hint_text=reel.caption)
+                transcript_text = trans_res.get("text", "")
+
+            # 3. Multimodal Hook & Virality Analysis via Gemini Flash
+            if analyze_hook:
+                analysis_data = self.analyzer.analyze(
+                    frame_paths=raw_frame_paths,
+                    transcript=transcript_text,
+                    caption=reel.caption,
+                    tags=reel.tags,
+                    likes=reel.likes_count,
+                    comments=reel.comments_count
+                )
+        elif analyze_hook:
+            analysis_data = self.analyzer.analyze(
+                frame_paths=[],
+                transcript=transcript_text,
+                caption=reel.caption,
+                tags=reel.tags,
+                likes=reel.likes_count,
+                comments=reel.comments_count
+            )
+
+        reel_dict = reel.to_dict()
+        if hook_frames and not reel_dict.get("thumbnail_url"):
+            reel_dict["thumbnail_url"] = f"/thumbnails/{hook_frames[0]}"
+        valid_video_path = video_path if isinstance(video_path, str) and os.path.exists(video_path) else None
+        if valid_video_path:
+            reel_dict["video_url"] = f"/videos/{os.path.basename(valid_video_path)}"
+
+        # Save into SQLite DB
+        inserted = self.db.save_watched_reel(
+            reel_data=reel_dict,
+            video_local_path=valid_video_path,
+            transcript=transcript_text,
+            analysis_data=analysis_data,
+            hook_frames=hook_frames
+        )
+
+        score = analysis_data.get("hook_score", 0.0)
+        virality = analysis_data.get("virality_score", 0)
+        htype = analysis_data.get("hook_type", "N/A")
+        print(f"      ✅ [Готово] Reel {shortcode} | Hook: {score}/10 | Virality: {virality}% | {htype}")
+
+        self.db.add_log(
+            "REEL_PROCESSED",
+            f"Готов Reel {shortcode} для @{clean_user} ({idx}/{total})",
+            {"shortcode": shortcode, "username": clean_user, "hook_score": score, "virality_score": virality}
+        )
+        return inserted
 
     def watch_all_targets(
         self,

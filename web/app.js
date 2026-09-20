@@ -856,25 +856,31 @@
         console.error("Scan trigger error:", e);
       }
 
-      // Actively poll API while agent scans profile in background
+      // Actively poll API with 1-second interval for real-time live streaming of reels
       let pollCount = 0;
-      const maxPolls = 20; // 50 seconds max
+      const maxPolls = 50; // up to 50 seconds
+      let previousReelsCount = 0;
+
       const pollInterval = setInterval(async () => {
         pollCount++;
-        await loadProfiles();
-        renderProfiles();
-        await loadReelsFromApi();
-        renderReels();
-        if (activeProfile) {
-          updateHeroBanner();
-        }
 
-        // Check if watch completed in agent logs
         let scanDone = false;
+        let processedCount = 0;
+
         try {
           const logRes = await fetch("/api/logs");
           if (logRes.ok) {
             const logs = await logRes.json();
+            const processedLogs = logs.filter(l => 
+              l.event_type === "REEL_PROCESSED" &&
+              (l.message.includes(targetUser) || (l.metadata_json && l.metadata_json.includes(targetUser)))
+            );
+            processedCount = processedLogs.length;
+
+            if (processedCount > 0) {
+              scanNowBtn.innerHTML = `<span>⚡ В процессе: готово ${processedCount} роликов...</span>`;
+            }
+
             const recentLog = logs.find(l => 
               (l.event_type === "WATCH_COMPLETED" || l.event_type === "WATCH_FAILED") &&
               l.message.includes(targetUser)
@@ -884,6 +890,14 @@
             }
           }
         } catch (e) {}
+
+        await loadProfiles();
+        renderProfiles();
+        await loadReelsFromApi();
+        renderReels();
+        if (activeProfile) {
+          updateHeroBanner();
+        }
 
         if (scanDone || pollCount >= maxPolls) {
           clearInterval(pollInterval);
@@ -898,9 +912,9 @@
           scanNowBtn.disabled = false;
           scanNowBtn.style.opacity = "1";
           scanNowBtn.innerHTML = `<span>⚡ Запустить сканирование</span>`;
-          addLogEntry(getCurrentTime(), `Сканирование @${targetUser} завершено.`);
+          addLogEntry(getCurrentTime(), `Сканирование @${targetUser} завершено. Обработано роликов: ${processedCount || "все"}.`);
         }
-      }, 2500);
+      }, 1000);
     });
   }
 

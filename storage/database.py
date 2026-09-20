@@ -1,9 +1,11 @@
 """SQLite storage for NikitaBot watched reels, profiles, agent logs, and marketing audits."""
+import contextlib
 import datetime as dt
 import json
 import os
 from pathlib import Path
 import sqlite3
+import threading
 from typing import Any, Dict, List, Optional
 
 
@@ -15,6 +17,7 @@ class NikitaDatabase:
     """Thread-safe SQLite database manager for NikitaBot."""
 
     def __init__(self, db_path: Optional[str] = None):
+        self._lock = threading.RLock()
         if db_path is None:
             data_dir = Path(os.getcwd()) / "data"
             data_dir.mkdir(parents=True, exist_ok=True)
@@ -25,11 +28,19 @@ class NikitaDatabase:
 
         self._init_schema()
 
-    def _get_connection(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path)
+    @contextlib.contextmanager
+    def _get_connection(self):
+        conn = sqlite3.connect(self.db_path, timeout=30.0)
         conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
-        return conn
+        try:
+            conn.execute("PRAGMA journal_mode=WAL")
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
     def _init_schema(self) -> None:
         with self._get_connection() as conn:
@@ -137,16 +148,17 @@ class NikitaDatabase:
         analysis = analysis_data or {}
         hook_frames_json = json.dumps(hook_frames or [], ensure_ascii=False)
 
-        with self._get_connection() as conn:
-            conn.execute("""
-                INSERT INTO watched_reels (
-                    shortcode, username, url, caption, timestamp,
-                    duration_seconds, views_count, likes_count, comments_count,
-                    video_url, thumbnail_url, video_local_path, tags_json, watched_at,
-                    transcript, hook_score, virality_score, hook_type, hook_dynamics,
-                    hook_summary, hook_frames_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
+        with self._lock:
+            with self._get_connection() as conn:
+                conn.execute("""
+                    INSERT INTO watched_reels (
+                        shortcode, username, url, caption, timestamp,
+                        duration_seconds, views_count, likes_count, comments_count,
+                        video_url, thumbnail_url, video_local_path, tags_json, watched_at,
+                        transcript, hook_score, virality_score, hook_type, hook_dynamics,
+                        hook_summary, hook_frames_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
                 shortcode,
                 username,
                 reel_data.get("url", ""),
@@ -170,14 +182,14 @@ class NikitaDatabase:
                 hook_frames_json
             ))
 
-            # Increment profile total_watched
-            conn.execute("""
-                INSERT INTO watched_profiles (username, last_watched_at, total_watched)
-                VALUES (?, ?, 1)
-                ON CONFLICT(username) DO UPDATE SET
-                    last_watched_at = excluded.last_watched_at,
-                    total_watched = total_watched + 1
-            """, (username, watched_at))
+                # Increment profile total_watched
+                conn.execute("""
+                    INSERT INTO watched_profiles (username, last_watched_at, total_watched)
+                    VALUES (?, ?, 1)
+                    ON CONFLICT(username) DO UPDATE SET
+                        last_watched_at = excluded.last_watched_at,
+                        total_watched = total_watched + 1
+                """, (username, watched_at))
 
         self.add_log(
             "REEL_WATCHED",
@@ -354,16 +366,17 @@ class NikitaDatabase:
 
     def add_log(self, event_type: str, message: str, metadata: Optional[Dict[str, Any]] = None) -> None:
         """Add an autonomous agent log entry."""
-        with self._get_connection() as conn:
-            conn.execute("""
-                INSERT INTO agent_logs (timestamp, event_type, message, metadata_json)
-                VALUES (?, ?, ?, ?)
-            """, (
-                utcnow(),
-                event_type,
-                message,
-                json.dumps(metadata or {}, ensure_ascii=False)
-            ))
+        with self._lock:
+            with self._get_connection() as conn:
+                conn.execute("""
+                    INSERT INTO agent_logs (timestamp, event_type, message, metadata_json)
+                    VALUES (?, ?, ?, ?)
+                """, (
+                    utcnow(),
+                    event_type,
+                    message,
+                    json.dumps(metadata or {}, ensure_ascii=False)
+                ))
 
     def get_recent_logs(self, limit: int = 30) -> List[Dict[str, Any]]:
         """Get latest agent logs."""

@@ -14,11 +14,13 @@ class TestProfileDatabaseOps(unittest.TestCase):
 
     def setUp(self):
         self.temp_db_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
-        self.db = NikitaDatabase(db_path=self.temp_db_file.name)
+        self.temp_db_path = self.temp_db_file.name
+        self.temp_db_file.close()
+        self.db = NikitaDatabase(db_path=self.temp_db_path)
 
     def tearDown(self):
-        if os.path.exists(self.temp_db_file.name):
-            os.remove(self.temp_db_file.name)
+        if os.path.exists(self.temp_db_path):
+            os.remove(self.temp_db_path)
 
     def test_01_save_and_get_audit(self):
         audit_data = {
