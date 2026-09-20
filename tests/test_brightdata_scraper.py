@@ -21,6 +21,7 @@ class TestBrightDataInstagramScraper(unittest.TestCase):
         scraper = BrightDataInstagramScraper(api_key="bd_token_test_12345")
         self.assertTrue(scraper.is_configured())
         self.assertEqual(scraper.api_key, "bd_token_test_12345")
+        self.assertEqual(scraper.dataset_id, "gd_lk5ns7kz21pck8jpis")
 
     def test_03_fallback_simulation(self):
         with patch.dict(os.environ, {"BRIGHTDATA_API_KEY": "", "BRIGHT_DATA_TOKEN": ""}):

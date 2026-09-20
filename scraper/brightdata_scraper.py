@@ -38,14 +38,24 @@ def load_env_file(env_path: str = ".env"):
 
 
 class BrightDataInstagramScraper:
-    """Bright Data Instagram Dataset Scraper client (dataset_id=gd_l1vikfch901nx3by4)."""
+    """Bright Data Instagram Dataset Scraper client.
+    
+    Default Dataset ID: gd_lk5ns7kz21pck8jpis (Instagram Posts Collect by URL)
+    Configurable via BRIGHTDATA_INSTAGRAM_POSTS_DATASET or BRIGHTDATA_DATASET_ID.
+    """
 
-    DATASET_ID = "gd_l1vikfch901nx3by4"
+    DEFAULT_DATASET_ID = "gd_lk5ns7kz21pck8jpis"
     BASE_URL = "https://api.brightdata.com/datasets/v3"
 
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: Optional[str] = None, dataset_id: Optional[str] = None):
         load_env_file()
         self.api_key = api_key or os.getenv("BRIGHTDATA_API_KEY") or os.getenv("BRIGHT_DATA_TOKEN")
+        self.dataset_id = (
+            dataset_id
+            or os.getenv("BRIGHTDATA_INSTAGRAM_POSTS_DATASET")
+            or os.getenv("BRIGHTDATA_DATASET_ID")
+            or self.DEFAULT_DATASET_ID
+        )
 
     def is_configured(self) -> bool:
         """Returns True if a Bright Data API key is configured."""
@@ -56,13 +66,18 @@ class BrightDataInstagramScraper:
         
         Fetches authentic Reels, CDN video URLs, original thumbnails, and engagement stats.
         """
-        clean_user = username.replace("@", "").strip().split("?")[0].rstrip("/")
+        if username.startswith("http://") or username.startswith("https://"):
+            target_url = username
+            clean_user = username.split("instagram.com/")[-1].split("/")[0].split("?")[0]
+        else:
+            clean_user = username.replace("@", "").strip().split("?")[0].rstrip("/")
+            target_url = f"https://www.instagram.com/{clean_user}/"
+
         if not self.is_configured():
             logger.info("Bright Data API key not configured. Running in Bright Data simulation mode for @%s.", clean_user)
             return self._fallback_simulation(clean_user, limit)
 
-        target_url = f"https://www.instagram.com/{clean_user}/"
-        scrape_url = f"{self.BASE_URL}/scrape?dataset_id={self.DATASET_ID}&notify=false&include_errors=true"
+        scrape_url = f"{self.BASE_URL}/scrape?dataset_id={self.dataset_id}&notify=false&include_errors=true"
         
         payload = {
             "input": [{"url": target_url}],
@@ -83,18 +98,37 @@ class BrightDataInstagramScraper:
 
             with urllib.request.urlopen(req, timeout=120) as resp:
                 resp_bytes = resp.read()
-                raw_json = json.loads(resp_bytes.decode("utf-8"))
 
             items = []
-            if isinstance(raw_json, list):
-                items = raw_json
-            elif isinstance(raw_json, dict):
-                # If a snapshot_id is returned, poll for the completed dataset snapshot
-                snapshot_id = raw_json.get("snapshot_id")
-                if snapshot_id:
-                    items = self._poll_snapshot(snapshot_id)
-                elif "data" in raw_json and isinstance(raw_json["data"], list):
-                    items = raw_json["data"]
+            try:
+                raw_json = json.loads(resp_bytes.decode("utf-8"))
+                if isinstance(raw_json, list):
+                    items = raw_json
+                elif isinstance(raw_json, dict):
+                    if raw_json.get("error_code") == "dead_page" or "not a post URL" in raw_json.get("error", ""):
+                        logger.warning(
+                            "Bright Data dataset %s expects a Post/Reel URL (input was %s).",
+                            self.dataset_id, target_url
+                        )
+                    snapshot_id = raw_json.get("snapshot_id")
+                    if snapshot_id:
+                        items = self._poll_snapshot(snapshot_id)
+                    elif "data" in raw_json and isinstance(raw_json["data"], list):
+                        items = raw_json["data"]
+                    elif any(k in raw_json for k in ("url", "shortcode", "post_id", "videos", "video_url", "description", "caption")):
+                        items = [raw_json]
+            except Exception:
+                # Try parsing as NDJSON (newline-delimited JSON)
+                for line in resp_bytes.decode("utf-8").splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        obj = json.loads(line)
+                        if isinstance(obj, dict):
+                            items.append(obj)
+                    except Exception:
+                        pass
 
             logger.info("Bright Data API returned %d raw items for @%s.", len(items), clean_user)
             reels = self._normalize_items(items, clean_user, limit)
