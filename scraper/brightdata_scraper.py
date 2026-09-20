@@ -185,14 +185,16 @@ class BrightDataInstagramScraper:
         for item in items:
             # Check if this item is a video or reel
             is_video = (
-                item.get("is_video") is True
+                item.get("product_type") == "clips"
+                or item.get("is_video") is True
                 or item.get("type") in ("Video", "video", "reel", "Reel")
-                or bool(item.get("video_url") or item.get("media_url"))
+                or bool(item.get("video_url") or item.get("media_url") or item.get("videos"))
             )
 
             # Extract shortcode
             shortcode = (
                 item.get("shortcode")
+                or item.get("post_id")
                 or item.get("id")
                 or item.get("pk")
             )
@@ -205,35 +207,71 @@ class BrightDataInstagramScraper:
                 continue
 
             caption = item.get("caption") or item.get("description") or item.get("text") or ""
-            tags = re.findall(r"#([\w\u0400-\u04FF]+)", caption)
+            
+            # Hashtags: support direct array or extraction from text
+            hashtags_raw = item.get("hashtags")
+            if isinstance(hashtags_raw, list) and hashtags_raw:
+                tags = [t.lstrip("#") for t in hashtags_raw if isinstance(t, str)]
+            else:
+                tags = re.findall(r"#([\w\u0400-\u04FF]+)", caption)
 
+            # Video URL: support direct string video_url or videos list
             video_url = item.get("video_url") or item.get("media_url") or item.get("download_url")
+            if not video_url and item.get("videos"):
+                v_list = item.get("videos")
+                if isinstance(v_list, list) and v_list:
+                    video_url = v_list[0]
+                elif isinstance(v_list, str):
+                    video_url = v_list
+
             thumbnail_url = item.get("thumbnail") or item.get("display_url") or item.get("cover_photo")
+            if not thumbnail_url and item.get("photos"):
+                p_list = item.get("photos")
+                if isinstance(p_list, list) and p_list:
+                    thumbnail_url = p_list[0]
 
             views = (
                 item.get("views")
-                or item.get("video_view_count")
                 or item.get("video_play_count")
+                or item.get("video_view_count")
                 or item.get("play_count")
                 or 0
             )
             likes = item.get("likes") or item.get("likes_count") or item.get("like_count") or 0
-            comments = item.get("comments") or item.get("comments_count") or item.get("num_comments") or 0
-            duration = item.get("video_duration") or item.get("duration")
+            comments = item.get("num_comments") or item.get("comments") or item.get("comments_count") or 0
+            
+            # Duration: support "length": "14.066667" string/float
+            dur_raw = item.get("length") or item.get("videos_duration") or item.get("video_duration") or item.get("duration")
+            duration_val = None
+            if dur_raw is not None:
+                try:
+                    if isinstance(dur_raw, list) and dur_raw:
+                        duration_val = float(dur_raw[0])
+                    else:
+                        duration_val = float(dur_raw)
+                except (ValueError, TypeError):
+                    duration_val = None
+
+            # Author / Creator
+            author_val = item.get("user_posted") or item.get("owner_username") or item.get("author") or username
+            clean_author = f"@{str(author_val).replace('@', '').strip()}"
+
+            # Timestamp
+            ts = item.get("date_posted") or item.get("timestamp") or item.get("datetime") or ""
 
             reels.append(
                 ScrapedReel(
                     shortcode=str(shortcode),
                     url=item.get("url") or f"https://www.instagram.com/reel/{shortcode}/",
-                    author=f"@{username}",
+                    author=clean_author,
                     caption=caption,
-                    timestamp=item.get("timestamp") or item.get("datetime") or "",
+                    timestamp=ts,
                     video_url=video_url,
                     thumbnail_url=thumbnail_url,
                     likes_count=int(likes) if likes else 0,
                     comments_count=int(comments) if comments else 0,
                     views_count=int(views) if views else 0,
-                    duration_seconds=float(duration) if duration else None,
+                    duration_seconds=duration_val,
                     is_video=is_video,
                     tags=tags
                 )

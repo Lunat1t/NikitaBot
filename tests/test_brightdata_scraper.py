@@ -105,6 +105,37 @@ class TestBrightDataInstagramScraper(unittest.TestCase):
             self.assertEqual(len(res.reels), 1)
             self.assertEqual(res.reels[0].shortcode, "CxLjopXoP67")
 
+    def test_06_reels_dataset_schema_normalization(self):
+        raw_reels_item = {
+            "url": "https://www.instagram.com/reel/DNpnMNTR7aM/",
+            "user_posted": "nato.humor",
+            "description": "챌린지 라인업이 너무 짱짱한거 아닌가요? #앳하트 #AtHeart",
+            "hashtags": ["#앳하트", "#AtHeart", "#신인"],
+            "num_comments": 0,
+            "date_posted": "2025-08-22T08:14:20.000Z",
+            "likes": 117,
+            "views": 57005,
+            "video_play_count": 57005,
+            "post_id": "3704664531218708108",
+            "thumbnail": "https://scontent-lax7-1.cdninstagram.com/thumb.jpg",
+            "shortcode": "DNpnMNTR7aM",
+            "product_type": "clips",
+            "length": "14.066667",
+            "video_url": "https://scontent-lax7-1.cdninstagram.com/o1/v/t2/video.mp4"
+        }
+        scraper = BrightDataInstagramScraper()
+        reels = scraper._normalize_items([raw_reels_item], "test_user")
+        self.assertEqual(len(reels), 1)
+        r = reels[0]
+        self.assertEqual(r.shortcode, "DNpnMNTR7aM")
+        self.assertEqual(r.author, "@nato.humor")
+        self.assertEqual(r.views_count, 57005)
+        self.assertEqual(r.likes_count, 117)
+        self.assertAlmostEqual(r.duration_seconds, 14.066667)
+        self.assertEqual(r.tags, ["앳하特".replace("特", "트"), "AtHeart", "신인"])
+        self.assertTrue(r.is_video)
+        self.assertEqual(r.video_url, "https://scontent-lax7-1.cdninstagram.com/o1/v/t2/video.mp4")
+
 
 if __name__ == "__main__":
     unittest.main()

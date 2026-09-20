@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Deterministic Moon verification test suite for NikitaBot dev server."""
 import json
+import os
 import socketserver
 import threading
 import time
@@ -108,13 +109,24 @@ class TestNikitaBotServer(unittest.TestCase):
         self.assertFalse(db.is_reel_watched(test_sc))
 
     def test_08_video_stream_and_range_api(self):
-        # Test fuzzy video resolution / fallback streaming with Content-Type video/mp4
-        url = f"http://127.0.0.1:{TEST_PORT}/videos/DbX-A-CgVRb.mp4"
-        req = urllib.request.Request(url, headers={"Range": "bytes=0-1023"})
-        with urllib.request.urlopen(req) as resp:
-            self.assertIn(resp.status, (200, 206))
-            self.assertEqual(resp.headers.get("Content-Type"), "video/mp4")
-            self.assertEqual(resp.headers.get("Accept-Ranges"), "bytes")
+        # Create a self-contained sample video file to test streaming & HTTP 206 Range headers
+        from server import VIDEOS_DIR
+        sample_path = os.path.join(VIDEOS_DIR, "test_range_sample.mp4")
+        with open(sample_path, "wb") as f:
+            f.write(b"SAMPLE_H264_MP4_HEADER_DATA_1234567890_TEST_STREAMING_BYTES")
+
+        try:
+            url = f"http://127.0.0.1:{TEST_PORT}/videos/test_range_sample.mp4"
+            req = urllib.request.Request(url, headers={"Range": "bytes=0-15"})
+            with urllib.request.urlopen(req) as resp:
+                self.assertEqual(resp.status, 206)
+                self.assertEqual(resp.headers.get("Content-Type"), "video/mp4")
+                self.assertEqual(resp.headers.get("Accept-Ranges"), "bytes")
+                chunk = resp.read()
+                self.assertEqual(len(chunk), 16)
+        finally:
+            if os.path.exists(sample_path):
+                os.remove(sample_path)
 
 
 if __name__ == "__main__":
