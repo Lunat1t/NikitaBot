@@ -114,7 +114,11 @@ class ContentWatcherAgent:
             if download_media or analyze_hook:
                 print(f"      📥 Загружаю MP4 видеоряд для анализа хука...")
                 try:
-                    dl_res = self.scraper.download_reel_media(reel.url, f"{clean_user}_{shortcode}")
+                    dl_res = self.scraper.download_reel_media(
+                        reel.url,
+                        f"{clean_user}_{shortcode}",
+                        direct_video_url=reel.video_url
+                    )
                     video_path = dl_res.get("video_path")
                 except Exception as e:
                     print(f"      ⚠️ Загрузка видео не удалась ({e}), переход к мета-анализу.")

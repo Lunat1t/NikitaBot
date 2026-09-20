@@ -8,6 +8,7 @@ from typing import List, Optional
 import instaloader
 import yt_dlp
 
+from .apify_scraper import ApifyInstagramScraper
 from .models import ScrapedReel, ScraperResult
 from .session_manager import SessionManager
 
@@ -40,6 +41,7 @@ class InstagramScraper:
         self.download_dir = Path(download_dir or os.path.join(os.getcwd(), "downloads"))
         self.download_dir.mkdir(parents=True, exist_ok=True)
         self.session_manager = SessionManager()
+        self.apify_scraper = ApifyInstagramScraper()
         
         # Configure Instaloader
         self.loader = instaloader.Instaloader(
@@ -187,6 +189,16 @@ class InstagramScraper:
     def fetch_profile_reels(self, username: str, limit: Optional[int] = 10) -> ScraperResult:
         """Fetch recent reels and posts from a public profile. If limit is None or 0, fetches all available."""
         clean_user = extract_username(username)
+
+        # 1. Prioritize official Apify Instagram Scraper actor (apify/instagram-scraper)
+        if self.apify_scraper.is_configured():
+            logger.info("Using Apify Instagram Scraper actor for @%s (limit=%s)", clean_user, limit)
+            target_limit = limit if (limit and limit > 0) else 10
+            apify_res = self.apify_scraper.scrape_profile_reels(clean_user, limit=target_limit)
+            if apify_res.status == "success" and apify_res.reels:
+                return apify_res
+            logger.warning("Apify actor returned empty or error, falling back to local scraper.")
+
         self.session_manager.polite_delay()
 
         reels: List[ScrapedReel] = []
@@ -290,7 +302,7 @@ class InstagramScraper:
                 "like_count": info.get("like_count"),
             }
 
-    def download_reel_media(self, reel_url: str, output_name: str) -> dict:
+    def download_reel_media(self, reel_url: str, output_name: str, direct_video_url: Optional[str] = None) -> dict:
         """Download MP4 video and extract MP3/WAV audio for Whisper."""
         clean_name = os.path.basename(output_name)
         
@@ -299,7 +311,29 @@ class InstagramScraper:
         if os.path.exists(data_video) and os.path.getsize(data_video) > 1000:
             return {"video_path": data_video, "output_dir": "data/videos"}
 
-        # 2. Try downloading with yt-dlp (using session cookies if available)
+        # 2. If direct CDN video URL is provided (from Apify Instagram Scraper), stream download it directly
+        if direct_video_url and direct_video_url.startswith("http"):
+            try:
+                import urllib.request
+                headers = {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                    "Referer": "https://www.instagram.com/",
+                }
+                req = urllib.request.Request(direct_video_url, headers=headers)
+                os.makedirs(os.path.join("data", "videos"), exist_ok=True)
+                with urllib.request.urlopen(req, timeout=30) as resp, open(data_video, "wb") as out_f:
+                    while True:
+                        chunk = resp.read(65536)
+                        if not chunk:
+                            break
+                        out_f.write(chunk)
+                if os.path.exists(data_video) and os.path.getsize(data_video) > 1000:
+                    logger.info("Successfully downloaded authentic Instagram MP4 video from CDN to %s", data_video)
+                    return {"video_path": data_video, "output_dir": "data/videos"}
+            except Exception as e:
+                logger.warning("Direct CDN stream download error for %s: %s", direct_video_url, e)
+
+        # 3. Try downloading with yt-dlp (using session cookies if available)
         out_template = str(self.download_dir / f"{clean_name}.%(ext)s")
         ydl_opts = {
             "quiet": True,
