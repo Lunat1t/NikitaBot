@@ -80,10 +80,15 @@ class ApifyInstagramScraper:
 
         try:
             run = self.client.actor(self.ACTOR_ID).call(run_input=run_input)
-            if not run or "defaultDatasetId" not in run:
+            dataset_id = None
+            if isinstance(run, dict):
+                dataset_id = run.get("defaultDatasetId") or run.get("default_dataset_id")
+            elif run is not None:
+                dataset_id = getattr(run, "default_dataset_id", None) or getattr(run, "defaultDatasetId", None)
+
+            if not dataset_id:
                 raise RuntimeError(f"Apify actor run did not return dataset ID: {run}")
 
-            dataset_id = run["defaultDatasetId"]
             dataset_items = list(self.client.dataset(dataset_id).iterate_items())
             logger.info("Apify actor finished. Retrieved %d items from dataset %s.", len(dataset_items), dataset_id)
 
