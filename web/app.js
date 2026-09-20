@@ -297,6 +297,12 @@
       const card = document.createElement("div");
       card.className = "reel-card";
 
+      const sc = reel.shortcode || reel.id || "";
+      let cardVideoUrl = reel.videoUrl;
+      if (!cardVideoUrl || cardVideoUrl.startsWith("http://") || cardVideoUrl.startsWith("https://")) {
+        cardVideoUrl = `/videos/${encodeURIComponent(sc)}.mp4`;
+      }
+
       const tagsHtml = reel.tags.map((t) => `<span class="ai-tag">#${escapeHtml(t)}</span>`).join("");
 
       // 3-frame hook strip
@@ -334,12 +340,6 @@
             <div class="transcript-details-content">${escapeHtml(reel.transcript)}</div>
           </details>
         `;
-      }
-
-      const sc = reel.shortcode || reel.id || "";
-      let cardVideoUrl = reel.videoUrl;
-      if (!cardVideoUrl || cardVideoUrl.startsWith("http://") || cardVideoUrl.startsWith("https://")) {
-        cardVideoUrl = `/videos/${encodeURIComponent(sc)}.mp4`;
       }
 
       card.innerHTML = `
