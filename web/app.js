@@ -80,14 +80,16 @@
     await loadLogsFromApi();
     attachEvents();
 
-    // Auto-refresh every 6 seconds
+    // Auto-refresh every 10 seconds (skip grid re-render if user is watching a reel)
     setInterval(async () => {
       await loadProfiles();
       renderProfiles();
-      await loadReelsFromApi();
-      renderReels();
       await loadLogsFromApi();
-    }, 6000);
+      if (!reelDetailModal || !reelDetailModal.classList.contains("active")) {
+        await loadReelsFromApi();
+        renderReels();
+      }
+    }, 10000);
   }
 
   function mapDbReel(dbR) {
@@ -364,15 +366,44 @@
         </div>
 
         <div class="card-actions" style="display: flex; gap: 8px;">
-          <button class="btn-play-reel watch-reel-btn" style="flex: 1; background: linear-gradient(135deg, #059669, #10b981); color: white; border: none; padding: 8px 10px; border-radius: 8px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 12px;">
+          <button class="btn-play-reel watch-reel-btn" style="flex: 1; background: linear-gradient(135deg, #059669, #10b981); color: white; border: none; padding: 8px 10px; border-radius: 8px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 12px; transition: transform 0.15s ease;">
             <span>▶️ Смотреть Reel</span>
           </button>
-          <button class="btn-detail view-analysis-btn" style="flex: 1;">Разбор & Кадры</button>
+          <button class="btn-detail view-analysis-btn" style="flex: 1; cursor: pointer;">Разбор & Кадры</button>
         </div>
+        ${reel.videoUrl ? `
+          <div style="margin-top: 8px; text-align: center;">
+            <a href="${reel.videoUrl}" target="_blank" style="font-size: 11px; color: #38bdf8; text-decoration: underline; opacity: 0.85;" title="Открыть исходный файл H.264 MP4">
+              ↗ Открыть видео напрямую (.mp4)
+            </a>
+          </div>
+        ` : ""}
       `;
 
-      card.querySelector(".watch-reel-btn").addEventListener("click", () => openReelDetails(reel, true));
-      card.querySelector(".view-analysis-btn").addEventListener("click", () => openReelDetails(reel, false));
+      const watchBtn = card.querySelector(".watch-reel-btn");
+      if (watchBtn) {
+        watchBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          openReelDetails(reel, true);
+        });
+      }
+
+      const viewBtn = card.querySelector(".view-analysis-btn");
+      if (viewBtn) {
+        viewBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          openReelDetails(reel, false);
+        });
+      }
+
+      // Allow clicking on frames strip or thumbnail box to also open details
+      const frameEl = card.querySelector(".hook-frames-strip, .thumbnail-box");
+      if (frameEl) {
+        frameEl.style.cursor = "pointer";
+        frameEl.title = "Нажмите для подробного разбора и просмотра";
+        frameEl.addEventListener("click", () => openReelDetails(reel, false));
+      }
+
       reelsGrid.appendChild(card);
     });
   }
@@ -448,69 +479,104 @@
   }
 
   function openReelDetails(reel, autoPlay = false) {
-    modalReelTitle.textContent = `${reel.author} • Multimodal Hook Analysis`;
-    modalDurationTag.textContent = reel.duration;
+    if (!reel) return;
+    try {
+      if (modalReelTitle) {
+        modalReelTitle.textContent = `${reel.author} • Разбор и кадры`;
+      }
+      const durTag = document.getElementById("modalDurationTag");
+      if (durTag) {
+        durTag.textContent = reel.duration || "0:30";
+      }
 
-    const modalVideoPlayer = document.getElementById("modalVideoPlayer");
-    const modalDirectVideoLink = document.getElementById("modalDirectVideoLink");
-    if (modalVideoPlayer) {
-      if (reel.videoUrl) {
-        modalVideoPlayer.src = reel.videoUrl;
-        if (reel.thumbnailUrl) modalVideoPlayer.poster = reel.thumbnailUrl;
-        modalVideoPlayer.load();
-        if (autoPlay) {
-          modalVideoPlayer.play().catch(() => {});
+      const modalVideoPlayer = document.getElementById("modalVideoPlayer");
+      const modalDirectVideoLink = document.getElementById("modalDirectVideoLink");
+      if (modalVideoPlayer) {
+        if (reel.videoUrl) {
+          modalVideoPlayer.src = reel.videoUrl;
+          if (reel.thumbnailUrl) modalVideoPlayer.poster = reel.thumbnailUrl;
+          modalVideoPlayer.load();
+          if (autoPlay) {
+            const playPromise = modalVideoPlayer.play();
+            if (playPromise !== undefined) {
+              playPromise.catch((err) => {
+                console.warn("Autoplay deferred or requires user gesture:", err);
+              });
+            }
+          }
+        } else {
+          modalVideoPlayer.removeAttribute("src");
         }
-      } else {
-        modalVideoPlayer.removeAttribute("src");
       }
-    }
-    if (modalDirectVideoLink) {
-      if (reel.videoUrl) {
-        modalDirectVideoLink.href = reel.videoUrl;
-        modalDirectVideoLink.style.display = "block";
-      } else {
-        modalDirectVideoLink.style.display = "none";
+      if (modalDirectVideoLink) {
+        if (reel.videoUrl) {
+          modalDirectVideoLink.href = reel.videoUrl;
+          modalDirectVideoLink.style.display = "block";
+          modalDirectVideoLink.textContent = `↗ Открыть видео напрямую (${reel.id || "Reel"}.mp4)`;
+        } else {
+          modalDirectVideoLink.style.display = "none";
+        }
       }
-    }
 
-    let framesPreview = "";
-    if (reel.hookFrames && reel.hookFrames.length > 0) {
-      framesPreview = `
-        <div style="display:flex; gap:6px; margin-top:10px;">
-          ${reel.hookFrames.map((f, i) => `
-            <div style="flex:1; position:relative; aspect-ratio:9/14; border-radius:6px; overflow:hidden; border:1px solid rgba(255,255,255,0.15);">
-              <img src="/thumbnails/${encodeURIComponent(f)}" style="width:100%; height:100%; object-fit:cover;" onerror="this.style.display='none'">
-              <span style="position:absolute; bottom:2px; left:2px; font-size:9px; background:rgba(0,0,0,0.8); color:#38bdf8; padding:1px 4px; border-radius:3px;">${["0.5s", "1.5s", "3.0s"][i] || ""}</span>
+      let framesPreview = "";
+      if (reel.hookFrames && reel.hookFrames.length > 0) {
+        framesPreview = `
+          <div style="margin-top:10px;">
+            <div style="font-size:11px; color:var(--cyan-accent); font-weight:600; margin-bottom:6px;">📸 Раскадровка хука (0.5s, 1.5s, 3.0s):</div>
+            <div style="display:flex; gap:6px;">
+              ${reel.hookFrames.map((f, i) => `
+                <div style="flex:1; position:relative; aspect-ratio:9/14; border-radius:6px; overflow:hidden; border:1px solid rgba(255,255,255,0.15); background:#000;">
+                  <img src="/thumbnails/${encodeURIComponent(f)}" style="width:100%; height:100%; object-fit:cover;" onerror="this.style.display='none'">
+                  <span style="position:absolute; bottom:2px; left:2px; font-size:9px; background:rgba(0,0,0,0.8); color:#38bdf8; padding:1px 4px; border-radius:3px;">${["0.5s", "1.5s", "3.0s"][i] || ""}</span>
+                </div>
+              `).join("")}
             </div>
-          `).join("")}
-        </div>
-      `;
+          </div>
+        `;
+      }
+
+      if (modalMetricsBar) {
+        modalMetricsBar.innerHTML = `
+          ${framesPreview}
+          <div style="display:flex; justify-content:space-around; padding: 12px 0; font-size:12px; color:var(--text-muted); border-top:1px solid rgba(255,255,255,0.06); margin-top:10px;">
+            <span>Просмотры: <b>${reel.views}</b></span>
+            <span>Лайки: <b>${reel.likes}</b></span>
+            <span>Оценка хука: <b>${reel.hookScore ? reel.hookScore + "/10" : "8.5/10"}</b></span>
+          </div>
+        `;
+      }
+
+      if (modalHookText) {
+        modalHookText.textContent = reel.viralHook || "Хук проанализирован";
+      }
+      if (modalTranscriptText) {
+        modalTranscriptText.textContent = reel.transcript || "Транскрипция речи отсутствует или обрабатывается.";
+      }
+      if (modalKeyTakeaways) {
+        const takeaways = Array.isArray(reel.takeaways) ? reel.takeaways : [];
+        modalKeyTakeaways.innerHTML = takeaways.map((t) => `<li>${escapeHtml(t)}</li>`).join("");
+      }
+
+      if (reelDetailModal) {
+        reelDetailModal.classList.add("active");
+      }
+    } catch (err) {
+      console.error("Error opening reel detail modal:", err);
+      if (reelDetailModal) reelDetailModal.classList.add("active");
     }
-
-    modalMetricsBar.innerHTML = `
-      ${framesPreview}
-      <div style="display:flex; justify-content:space-around; padding: 12px 0; font-size:12px; color:var(--text-muted); border-top:1px solid rgba(255,255,255,0.06); margin-top:10px;">
-        <span>Просмотры: <b>${reel.views}</b></span>
-        <span>Лайки: <b>${reel.likes}</b></span>
-        <span>Оценка хука: <b>${reel.hookScore ? reel.hookScore + "/10" : "8.5/10"}</b></span>
-      </div>
-    `;
-
-    modalHookText.textContent = reel.viralHook;
-    modalTranscriptText.textContent = reel.transcript || "Транскрипция речи отсутствует или обрабатывается.";
-    modalKeyTakeaways.innerHTML = reel.takeaways.map((t) => `<li>${escapeHtml(t)}</li>`).join("");
-
-    reelDetailModal.classList.add("active");
   }
 
   function closeDetailModal() {
     const modalVideoPlayer = document.getElementById("modalVideoPlayer");
     if (modalVideoPlayer) {
-      modalVideoPlayer.pause();
-      modalVideoPlayer.currentTime = 0;
+      try {
+        modalVideoPlayer.pause();
+        modalVideoPlayer.currentTime = 0;
+      } catch (e) {}
     }
-    reelDetailModal.classList.remove("active");
+    if (reelDetailModal) {
+      reelDetailModal.classList.remove("active");
+    }
   }
 
   function attachEvents() {
@@ -618,8 +684,18 @@
     });
 
     // Close Reel Detail Modal & stop playback
-    closeReelModal.addEventListener("click", closeDetailModal);
-    closeReelModalBtn.addEventListener("click", closeDetailModal);
+    if (closeReelModal) closeReelModal.addEventListener("click", closeDetailModal);
+    if (closeReelModalBtn) closeReelModalBtn.addEventListener("click", closeDetailModal);
+    if (reelDetailModal) {
+      reelDetailModal.addEventListener("click", (e) => {
+        if (e.target === reelDetailModal) closeDetailModal();
+      });
+    }
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && reelDetailModal && reelDetailModal.classList.contains("active")) {
+        closeDetailModal();
+      }
+    });
 
     // Watch Reel / Video by direct URL Modal
     const openWatchUrlModalBtn = document.getElementById("openWatchUrlModalBtn");
