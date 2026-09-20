@@ -9,6 +9,7 @@ import instaloader
 import yt_dlp
 
 from .apify_scraper import ApifyInstagramScraper
+from .brightdata_scraper import BrightDataInstagramScraper
 from .models import ScrapedReel, ScraperResult
 from .session_manager import SessionManager
 
@@ -41,6 +42,7 @@ class InstagramScraper:
         self.download_dir = Path(download_dir or os.path.join(os.getcwd(), "downloads"))
         self.download_dir.mkdir(parents=True, exist_ok=True)
         self.session_manager = SessionManager()
+        self.brightdata_scraper = BrightDataInstagramScraper()
         self.apify_scraper = ApifyInstagramScraper()
         
         # Configure Instaloader
@@ -190,7 +192,16 @@ class InstagramScraper:
         """Fetch recent reels and posts from a public profile. If limit is None or 0, fetches all available."""
         clean_user = extract_username(username)
 
-        # 1. Prioritize official Apify Instagram Scraper actor (apify/instagram-scraper)
+        # 1. Prioritize Bright Data Dataset Scraper API (dataset_id=gd_l1vikfch901nx3by4)
+        if self.brightdata_scraper.is_configured():
+            logger.info("Using Bright Data Dataset API for @%s (limit=%s)", clean_user, limit)
+            target_limit = limit if (limit and limit > 0) else 10
+            bd_res = self.brightdata_scraper.scrape_profile_reels(clean_user, limit=target_limit)
+            if bd_res.status == "success" and bd_res.reels:
+                return bd_res
+            logger.warning("Bright Data API returned empty or error, falling back.")
+
+        # 2. Secondary: Apify Instagram Scraper actor (apify/instagram-scraper)
         if self.apify_scraper.is_configured():
             logger.info("Using Apify Instagram Scraper actor for @%s (limit=%s)", clean_user, limit)
             target_limit = limit if (limit and limit > 0) else 10

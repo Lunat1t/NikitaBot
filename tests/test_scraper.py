@@ -83,6 +83,8 @@ class TestSessionManager(unittest.TestCase):
 class TestInstagramScraperMocked(unittest.TestCase):
     def setUp(self):
         self.scraper = InstagramScraper(download_dir="/tmp/nikitabot_test_downloads")
+        self.scraper.brightdata_scraper.api_key = None
+        self.scraper.apify_scraper.token = None
 
     def test_profile_not_exists(self):
         with patch("instaloader.Profile.from_username") as mock_profile:

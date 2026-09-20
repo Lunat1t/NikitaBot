@@ -38,6 +38,11 @@ DATA_DIR = os.path.join(ROOT_DIR, "data")
 THUMBNAILS_DIR = os.path.join(DATA_DIR, "thumbnails")
 VIDEOS_DIR = os.path.join(DATA_DIR, "videos")
 CONFIG_TARGETS_PATH = os.path.join(ROOT_DIR, "config", "targets.json")
+DEFAULT_TARGETS = [
+    {"username": "sentimentalka_smm", "category": "Marketing & Growth", "followers": "Новый"},
+    {"username": "TheTechDaily", "category": "Technology & AI", "followers": "2.1M"},
+    {"username": "StartupHub", "category": "Startups & Business", "followers": "980K"},
+]
 
 os.makedirs(THUMBNAILS_DIR, exist_ok=True)
 os.makedirs(VIDEOS_DIR, exist_ok=True)
@@ -190,7 +195,8 @@ class NikitaBotHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
                         targets = json.load(f)
                     except Exception:
                         targets = []
-
+            if not targets:
+                targets = [dict(p) for p in DEFAULT_TARGETS]
             # Enrich with real stats from SQLite
             for t in targets:
                 uname = t.get("username", "")

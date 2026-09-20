@@ -1,8 +1,17 @@
 [
   {
     "username": "sentimentalka_smm",
-    "followers": "Новый",
-    "status": "scanning",
-    "category": "Marketing & Growth"
+    "category": "Marketing & Growth",
+    "followers": "Новый"
+  },
+  {
+    "username": "TheTechDaily",
+    "category": "Technology & AI",
+    "followers": "2.1M"
+  },
+  {
+    "username": "StartupHub",
+    "category": "Startups & Business",
+    "followers": "980K"
   }
 ]
