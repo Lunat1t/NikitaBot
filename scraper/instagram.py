@@ -192,23 +192,23 @@ class InstagramScraper:
         """Fetch recent reels and posts from a public profile. If limit is None or 0, fetches all available."""
         clean_user = extract_username(username)
 
-        # 1. Prioritize Bright Data Dataset Scraper API (dataset_id=gd_l1vikfch901nx3by4)
+        # 1. Prioritize Bright Data Dataset Scraper API (dataset_id=gd_lk5ns7kz21pck8jpis)
         if self.brightdata_scraper.is_configured():
             logger.info("Using Bright Data Dataset API for @%s (limit=%s)", clean_user, limit)
             target_limit = limit if (limit and limit > 0) else 10
             bd_res = self.brightdata_scraper.scrape_profile_reels(clean_user, limit=target_limit)
-            if bd_res.status == "success" and bd_res.reels:
+            if bd_res.status == "success" and bd_res.reels and getattr(bd_res, "source", "") != "brightdata_simulation":
                 return bd_res
-            logger.warning("Bright Data API returned empty or error, falling back.")
+            logger.warning("Bright Data API returned empty or error (%s), cascading to Apify.", getattr(bd_res, "error_message", ""))
 
         # 2. Secondary: Apify Instagram Scraper actor (apify/instagram-scraper)
         if self.apify_scraper.is_configured():
             logger.info("Using Apify Instagram Scraper actor for @%s (limit=%s)", clean_user, limit)
             target_limit = limit if (limit and limit > 0) else 10
             apify_res = self.apify_scraper.scrape_profile_reels(clean_user, limit=target_limit)
-            if apify_res.status == "success" and apify_res.reels:
+            if apify_res.status == "success" and apify_res.reels and getattr(apify_res, "source", "") != "apify_simulation":
                 return apify_res
-            logger.warning("Apify actor returned empty or error, falling back to local scraper.")
+            logger.warning("Apify actor returned empty or error (%s), falling back to local scraper.", getattr(apify_res, "error_message", ""))
 
         self.session_manager.polite_delay()
 
@@ -317,12 +317,12 @@ class InstagramScraper:
         """Download MP4 video and extract MP3/WAV audio for Whisper."""
         clean_name = os.path.basename(output_name)
         
-        # 1. Check if video already exists in data/videos/ or downloads/
+        # 1. Check if authentic video already exists in data/videos/ (> 150KB, since synthetic dummy is ~67KB)
         data_video = os.path.join("data", "videos", f"{clean_name}.mp4")
-        if os.path.exists(data_video) and os.path.getsize(data_video) > 1000:
+        if os.path.exists(data_video) and os.path.getsize(data_video) > 150000 and not direct_video_url:
             return {"video_path": data_video, "output_dir": "data/videos"}
 
-        # 2. If direct CDN video URL is provided (from Apify Instagram Scraper), stream download it directly
+        # 2. If direct CDN video URL is provided (from Apify or Bright Data), stream download it directly
         if direct_video_url and direct_video_url.startswith("http"):
             try:
                 import urllib.request
@@ -332,17 +332,20 @@ class InstagramScraper:
                 }
                 req = urllib.request.Request(direct_video_url, headers=headers)
                 os.makedirs(os.path.join("data", "videos"), exist_ok=True)
-                with urllib.request.urlopen(req, timeout=30) as resp, open(data_video, "wb") as out_f:
+                with urllib.request.urlopen(req, timeout=45) as resp, open(data_video, "wb") as out_f:
                     while True:
                         chunk = resp.read(65536)
                         if not chunk:
                             break
                         out_f.write(chunk)
                 if os.path.exists(data_video) and os.path.getsize(data_video) > 1000:
-                    logger.info("Successfully downloaded authentic Instagram MP4 video from CDN to %s", data_video)
+                    logger.info("Successfully downloaded authentic Instagram MP4 video (%d bytes) from CDN to %s", os.path.getsize(data_video), data_video)
                     return {"video_path": data_video, "output_dir": "data/videos"}
             except Exception as e:
                 logger.warning("Direct CDN stream download error for %s: %s", direct_video_url, e)
+
+        if os.path.exists(data_video) and os.path.getsize(data_video) > 1000:
+            return {"video_path": data_video, "output_dir": "data/videos"}
 
         # 3. Try downloading with yt-dlp (using session cookies if available)
         out_template = str(self.download_dir / f"{clean_name}.%(ext)s")

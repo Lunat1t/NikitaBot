@@ -38,6 +38,7 @@ class ScraperResult:
     count: int = 0
     error_message: str | None = None
     scraped_at: str = field(default_factory=utcnow)
+    source: str = "instaloader"
 
     def __post_init__(self):
         if not self.count:

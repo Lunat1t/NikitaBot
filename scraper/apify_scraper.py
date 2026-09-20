@@ -95,6 +95,9 @@ class ApifyInstagramScraper:
             reels: List[ScrapedReel] = []
             for item in dataset_items:
                 is_video = item.get("type") in ("Video", "video") or bool(item.get("videoUrl"))
+                if not is_video:
+                    continue
+
                 shortcode = item.get("shortCode") or item.get("id")
                 if not shortcode:
                     continue
@@ -128,20 +131,33 @@ class ApifyInstagramScraper:
                 reels.append(reel)
 
             if not reels:
-                logger.warning("Apify returned items, but no valid reels parsed for @%s.", clean_user)
-                return self._fallback_simulation(clean_user, limit)
+                err_msg = f"Apify returned {len(dataset_items)} items, but no video reels found for @{clean_user}."
+                logger.warning(err_msg)
+                return ScraperResult(
+                    status="error",
+                    target_username=clean_user,
+                    error_message=err_msg,
+                    reels=[],
+                    source="apify"
+                )
 
             return ScraperResult(
                 status="success",
                 target_username=clean_user,
                 reels=reels[:limit],
-                count=len(reels[:limit])
+                count=len(reels[:limit]),
+                source="apify"
             )
 
         except Exception as e:
             logger.error("Apify actor execution error for @%s: %s", clean_user, e)
-            logger.info("Falling back to realistic pipeline for @%s.", clean_user)
-            return self._fallback_simulation(clean_user, limit)
+            return ScraperResult(
+                status="error",
+                target_username=clean_user,
+                error_message=f"Apify execution error: {e}",
+                reels=[],
+                source="apify"
+            )
 
     def _fallback_simulation(self, username: str, limit: int = 10) -> ScraperResult:
         """High-fidelity simulation matching apify/instagram-scraper schema when API token is pending."""

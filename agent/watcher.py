@@ -177,8 +177,8 @@ class ContentWatcherAgent:
             reel_dict = reel.to_dict()
             if hook_frames and not reel_dict.get("thumbnail_url"):
                 reel_dict["thumbnail_url"] = f"/thumbnails/{hook_frames[0]}"
-            valid_video_path = video_path if isinstance(video_path, str) else None
-            if valid_video_path and not reel_dict.get("video_url"):
+            valid_video_path = video_path if isinstance(video_path, str) and os.path.exists(video_path) else None
+            if valid_video_path:
                 reel_dict["video_url"] = f"/videos/{os.path.basename(valid_video_path)}"
 
             # Save into SQLite DB
@@ -255,8 +255,20 @@ class ContentWatcherAgent:
         thumbnails_dir = os.path.join("data", "thumbnails")
         os.makedirs(thumbnails_dir, exist_ok=True)
 
-        print(f"📥 Загружаю видеоряд рилса через yt-dlp...")
-        dl_res = self.scraper.download_reel_media(reel_url, f"direct_{shortcode}")
+        direct_video_url = None
+        reel_meta = None
+        if self.scraper.brightdata_scraper.is_configured():
+            try:
+                bd_res = self.scraper.brightdata_scraper.scrape_profile_reels(reel_url, limit=1)
+                if bd_res.status == "success" and bd_res.reels:
+                    reel_meta = bd_res.reels[0]
+                    direct_video_url = reel_meta.video_url
+                    print(f"   🎯 Bright Data нашел Reel: {reel_meta.author} (Likes: {reel_meta.likes_count})")
+            except Exception as e:
+                logger.warning("Bright Data direct reel lookup notice: %s", e)
+
+        print(f"📥 Загружаю видеоряд рилса...")
+        dl_res = self.scraper.download_reel_media(reel_url, f"direct_{shortcode}", direct_video_url=direct_video_url)
         video_path = dl_res.get("video_path")
 
         hook_frames = []
@@ -284,28 +296,28 @@ class ContentWatcherAgent:
                 analysis_data = self.analyzer.analyze(
                     frame_paths=raw_frames,
                     transcript=transcript_text,
-                    caption="",
-                    tags=[]
+                    caption=reel_meta.caption if reel_meta and reel_meta.caption else "",
+                    tags=reel_meta.tags if reel_meta and reel_meta.tags else []
                 )
                 print(f"   🎯 Хук: {analysis_data.get('hook_score')}/10 | Виральность: {analysis_data.get('virality_score')}%")
                 print(f"   💡 Саммари: {analysis_data.get('summary')}")
 
         # Save to DB
+        valid_vp = video_path if isinstance(video_path, str) and os.path.exists(video_path) else None
         reel_dict = {
             "shortcode": shortcode,
-            "author": "@direct_reel",
+            "author": reel_meta.author if reel_meta and reel_meta.author else "@direct_reel",
             "url": reel_url,
-            "caption": analysis_data.get("summary", "Direct reel inspect"),
-            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-            "duration_seconds": 30.0,
-            "views_count": 0,
-            "likes_count": 0,
-            "comments_count": 0,
-            "tags": ["reel", "direct"],
-            "thumbnail_url": f"/thumbnails/{hook_frames[0]}" if hook_frames else None,
-            "video_url": f"/videos/{os.path.basename(video_path)}" if isinstance(video_path, str) else None
+            "caption": (reel_meta.caption if reel_meta and reel_meta.caption else "") or analysis_data.get("summary", "Direct reel inspect"),
+            "timestamp": reel_meta.timestamp if reel_meta and reel_meta.timestamp else time.strftime("%Y-%m-%d %H:%M:%S"),
+            "duration_seconds": reel_meta.duration_seconds if reel_meta and reel_meta.duration_seconds else 30.0,
+            "views_count": reel_meta.views_count if reel_meta else 0,
+            "likes_count": reel_meta.likes_count if reel_meta else 0,
+            "comments_count": reel_meta.comments_count if reel_meta else 0,
+            "tags": reel_meta.tags if reel_meta and reel_meta.tags else ["reel", "direct"],
+            "thumbnail_url": f"/thumbnails/{hook_frames[0]}" if hook_frames else (reel_meta.thumbnail_url if reel_meta else None),
+            "video_url": f"/videos/{os.path.basename(valid_vp)}" if valid_vp else None
         }
-        valid_vp = video_path if isinstance(video_path, str) else None
         self.db.save_watched_reel(
             reel_data=reel_dict,
             video_local_path=valid_vp,

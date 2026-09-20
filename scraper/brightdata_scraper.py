@@ -68,7 +68,11 @@ class BrightDataInstagramScraper:
         """
         if username.startswith("http://") or username.startswith("https://"):
             target_url = username
-            clean_user = username.split("instagram.com/")[-1].split("/")[0].split("?")[0]
+            if "/reel/" in username or "/p/" in username:
+                parts = username.split("/reel/") if "/reel/" in username else username.split("/p/")
+                clean_user = parts[-1].split("/")[0].split("?")[0]
+            else:
+                clean_user = username.split("instagram.com/")[-1].split("/")[0].split("?")[0]
         else:
             clean_user = username.replace("@", "").strip().split("?")[0].rstrip("/")
             target_url = f"https://www.instagram.com/{clean_user}/"
@@ -90,7 +94,7 @@ class BrightDataInstagramScraper:
             "User-Agent": "NikitaBot-AI-Agent/2.0"
         }
 
-        logger.info("Calling Bright Data API: %s for @%s...", scrape_url, clean_user)
+        logger.info("Calling Bright Data API: %s for %s...", scrape_url, target_url)
 
         try:
             req_data = json.dumps(payload).encode("utf-8")
@@ -130,18 +134,26 @@ class BrightDataInstagramScraper:
                     except Exception:
                         pass
 
-            logger.info("Bright Data API returned %d raw items for @%s.", len(items), clean_user)
+            logger.info("Bright Data API returned %d raw items for %s.", len(items), target_url)
             reels = self._normalize_items(items, clean_user, limit)
 
             if not reels:
-                logger.warning("No video reels parsed from Bright Data response for @%s. Falling back to simulation.", clean_user)
-                return self._fallback_simulation(clean_user, limit)
+                err_msg = f"Bright Data dataset {self.dataset_id} returned 0 video reels for {target_url}"
+                logger.warning(err_msg)
+                return ScraperResult(
+                    status="error",
+                    target_username=clean_user,
+                    error_message=err_msg,
+                    reels=[],
+                    source="brightdata"
+                )
 
             return ScraperResult(
                 status="success",
                 target_username=clean_user,
                 reels=reels[:limit],
-                count=len(reels[:limit])
+                count=len(reels[:limit]),
+                source="brightdata"
             )
 
         except urllib.error.HTTPError as e:
@@ -151,10 +163,22 @@ class BrightDataInstagramScraper:
             except Exception:
                 pass
             logger.error("Bright Data HTTP %d error: %s (%s)", e.code, e.reason, err_body)
-            return self._fallback_simulation(clean_user, limit)
+            return ScraperResult(
+                status="error",
+                target_username=clean_user,
+                error_message=f"Bright Data HTTP {e.code}: {e.reason}",
+                reels=[],
+                source="brightdata"
+            )
         except Exception as e:
-            logger.error("Bright Data scrape request error for @%s: %s", clean_user, e)
-            return self._fallback_simulation(clean_user, limit)
+            logger.error("Bright Data scrape request error for %s: %s", target_url, e)
+            return ScraperResult(
+                status="error",
+                target_username=clean_user,
+                error_message=f"Bright Data scrape error: {e}",
+                reels=[],
+                source="brightdata"
+            )
 
     def _poll_snapshot(self, snapshot_id: str, max_retries: int = 15, delay: float = 3.0) -> List[Dict[str, Any]]:
         """Polls Bright Data snapshot until ready."""
