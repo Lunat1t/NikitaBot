@@ -12,6 +12,7 @@ def main():
     parser.add_argument("username", nargs="?", help="Instagram username to watch (e.g. startup_hub)")
     parser.add_argument("--all", action="store_true", help="Watch all profiles from config/targets.json")
     parser.add_argument("--limit", type=int, default=10, help="Max posts/reels to scan per profile (default: 10)")
+    parser.add_argument("--all-reels", action="store_true", help="Watch ALL available reels of the profile without limit")
     parser.add_argument("--download", action="store_true", help="Download MP4 video media locally")
     parser.add_argument("--loop", action="store_true", help="Run continuous background monitoring loop")
     parser.add_argument("--interval", type=int, default=15, help="Loop interval in minutes (default: 15)")
@@ -20,6 +21,8 @@ def main():
     args = parser.parse_args()
     db = NikitaDatabase()
     agent = ContentWatcherAgent(db=db)
+
+    effective_limit = None if args.all_reels else (None if args.limit <= 0 else args.limit)
 
     if args.list:
         reels = db.get_watched_reels(limit=25)
@@ -41,7 +44,7 @@ def main():
         return
 
     if args.username:
-        agent.watch_profile(args.username, limit=args.limit, download_media=args.download)
+        agent.watch_profile(args.username, limit=effective_limit, download_media=args.download)
         return
 
     parser.print_help()

@@ -35,8 +35,8 @@ class InstagramScraper:
             quiet=True,
         )
 
-    def fetch_profile_reels(self, username: str, limit: int = 10) -> ScraperResult:
-        """Fetch recent reels and posts from a public profile."""
+    def fetch_profile_reels(self, username: str, limit: Optional[int] = 10) -> ScraperResult:
+        """Fetch recent reels and posts from a public profile. If limit is None or 0, fetches all available."""
         clean_user = username.strip().replace("@", "")
         self.session_manager.polite_delay()
 
@@ -54,7 +54,7 @@ class InstagramScraper:
 
             count = 0
             for post in profile.get_posts():
-                if count >= limit:
+                if limit is not None and limit > 0 and count >= limit:
                     break
 
                 # Extract hashtag tags from caption
